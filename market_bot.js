@@ -1,63 +1,70 @@
-(function() {
-    const LIMIT_HLINA = 400; 
-    const MNOZSTVI = 10;      
-
-    // Pomocná funkce pro náhodný čas
+(function () {
+    // --- KONFIGURACE ---
+    const LIMIT_PRO_PRODEJ = 200; 
+    const KOLIK_PRODAT = 1000;    
+    const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1461838230663200890/Ff_OIbBuC3zMxKZFinwxmoJchc2Jq2h2l_nBddEp5hTE3Ys4o1-FCnpAZy20Zv92YnYf"; 
+    
     const nahodnyCas = (min, max) => Math.floor(Math.random() * (max - min + 1) + min);
 
-    console.log("%c BEZPEČNĚJŠÍ Bot aktivován!", "color: black; background: #ffcc00; padding: 5px;");
+    console.log("%c --- MOTOR 8.0: MULTI-RESOURCE & DISCORD --- ", "color: white; background: #7289da; font-weight: bold;");
+
+    function posliNaDiscord(zprava) {
+        if (DISCORD_WEBHOOK_URL.startsWith("http")) {
+            fetch(DISCORD_WEBHOOK_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: zprava })
+            }).catch(err => console.error("Discord error:", err));
+        }
+    }
 
     function hlidatTrh() {
-        let kurzy = Array.from(document.querySelectorAll('.premium-exchange-sep'))
-            .map(el => el.innerText.trim())
-            .filter(t => t.length > 2);
+        if (document.getElementById('captcha') || document.querySelector('.h-captcha')) {
+            posliNaDiscord("🆘 **POZOR!** Na trhu vyskočila Captcha! Musíš ji vyřešit ručně.");
+            return;
+        }
 
-        let kurzHlina = parseInt(kurzy[1]);
-        if (isNaN(kurzHlina)) return;
+        const suroviny = ["wood", "stone", "iron"];
+        const cesky = { "wood": "Dřevo", "stone": "Hlína", "iron": "Železo" };
+        let prodanoNeco = false;
 
-        if (kurzHlina <= LIMIT_HLINA) {
-            let inputHlina = document.getElementById("premium_exchange_buy_stone");
-            
-            if (inputHlina && inputHlina.value == "" && !document.querySelector('.btn-confirm-yes')) {
-                console.log("Nalezena cena " + kurzHlina + ". Simuluji lidskou aktivitu...");
+        suroviny.forEach((typ) => {
+            if (prodanoNeco) return; // Prodáváme jednu surovinu za cyklus, aby to bylo nenápadné
 
-                // Simulace kliknutí do pole před zápisem
-                inputHlina.focus();
+            let kapacita = PremiumExchange.data.capacity[typ];
+            let sklad = PremiumExchange.data.stock[typ];
+            let faktor = PremiumExchange.calculateMarginalPrice(sklad, kapacita);
+            let aktualniKurz = Math.floor(1 / faktor);
+
+            console.log(cesky[typ] + ": " + aktualniKurz);
+
+            if (aktualniKurz <= LIMIT_PRO_PRODEJ) {
+                let input = $("input[name='sell_" + typ + "']");
                 
-                setTimeout(() => {
-                    inputHlina.value = MNOZSTVI;
-                    ['input', 'change'].forEach(evt => 
-                        inputHlina.dispatchEvent(new Event(evt, { bubbles: true }))
-                    );
+                if (input.length > 0 && !document.querySelector('.btn-confirm-yes')) {
+                    console.log("Prodávám " + cesky[typ] + " při kurzu " + aktualniKurz);
+                    input.val(KOLIK_PRODAT).trigger('change');
+                    prodanoNeco = true;
 
-                    // Náhodná pauza před kliknutím na Vypočítat (1.2 až 2.5 sekundy)
                     setTimeout(() => {
-                        let btn = document.querySelector('.btn-premium-exchange-buy');
-                        if (btn && !btn.disabled) {
-                            btn.click();
-                            
-                            // Náhodná pauza před potvrzením (2 až 4 sekundy)
-                            setTimeout(potvrditNakup, nahodnyCas(2000, 4000));
-                        }
-                    }, nahodnyCas(1200, 2500));
-                }, nahodnyCas(500, 1000));
+                        $(".btn-premium-exchange-buy").click();
+                        setTimeout(() => {
+                            let confirmBtn = $(".btn-confirm-yes");
+                            if (confirmBtn.length > 0 && confirmBtn.is(':visible')) {
+                                confirmBtn.click();
+                                posliNaDiscord("💰 **Úspěšný prodej!** Prodáno " + KOLIK_PRODAT + " ks " + cesky[typ] + " za kurz " + aktualniKurz + ".");
+                                setTimeout(() => { location.reload(); }, nahodnyCas(4000, 6000));
+                            }
+                        }, nahodnyCas(2000, 3000));
+                    }, 1000);
+                }
             }
-        }
-        
-        // Nastavíme další kontrolu na náhodný čas (7 až 15 sekund)
-        let dalsiKontrola = nahodnyCas(7000, 15000);
-        setTimeout(hlidatTrh, dalsiKontrola);
-    }
+        });
 
-    function potvrditNakup() {
-        let tlacitko = document.querySelector('.btn-confirm-yes');
-        if (tlacitko) {
-            tlacitko.click();
-            console.log("Potvrzeno. Restartuji...");
-            setTimeout(() => { window.location.reload(); }, nahodnyCas(3000, 6000));
+        if (!prodanoNeco) {
+            setTimeout(hlidatTrh, nahodnyCas(10000, 20000));
         }
     }
 
-    // Spuštění první kontroly
     hlidatTrh();
 })();
