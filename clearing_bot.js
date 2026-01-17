@@ -3,6 +3,7 @@
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1461838230663200890/Ff_OIbBuC3zMxKZFinwxmoJchc2Jq2h2l_nBddEp5hTE3Ys4o1-FCnpAZy20Zv92YnYf';
 
+    // NASTAVENÍ ČASU (1h základ + 1-8 min náhoda)
     const WAIT_TIME = 3600000; 
     const MIN_OFFSET = 60000; 
 
@@ -103,13 +104,18 @@
                         await sleep(1300 + Math.floor(Math.random() * 700));
                     }
                 }
-                console.log(`[Bot] Odesláno ${count} sběrů.`);
                 
+                // VÝPOČET ČASU DALŠÍHO CYKLU
                 const randomSpread = Math.floor(Math.random() * 420000);
                 const nextDelay = WAIT_TIME + MIN_OFFSET + randomSpread;
-                console.log(`[Bot] Další cyklus za ${Math.floor(nextDelay/60000)} minut.`);
                 
-                // Opakování bez refreshe stránky
+                const now = new Date();
+                const nextRunTime = new Date(now.getTime() + nextDelay);
+                const timeString = nextRunTime.toLocaleTimeString('cs-CZ'); // Formát 21:45:59
+
+                console.log(`%c[Bot] Sběry odeslány (${count}x).`, "color: green; font-weight: bold;");
+                console.log(`%c[Bot] Další cyklus započne v: ${timeString}`, "color: cyan; font-weight: bold;");
+                
                 setTimeout(runScavengingCycle, nextDelay);
             }, 4000);
 
