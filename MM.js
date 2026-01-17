@@ -9,7 +9,9 @@
     //*************************** End Configuration ***************************//
 
     await ModuleLoader.loadModule('utils/notify-utils');
-    TwFramework.setIdleTitlePreffix('PREMIUM_ALERT', document.title);
+    if (typeof TwFramework !== 'undefined') {
+        TwFramework.setIdleTitlePreffix('PREMIUM_ALERT', document.title);
+    }
 
     const sendDiscordMessage = async (msg, isCritical = false) => {
         const payload = { content: msg };
@@ -20,6 +22,7 @@
         });
 
         if (isCritical) {
+            // Kritický alert pošle 3 zprávy hned po sobě
             await send(); await send(); await send();
         } else {
             await send();
@@ -28,44 +31,59 @@
 
     const _checkMarket = () => {
         try {
-            const getTax = (id) => parseInt(/.*?(\d+).*/g.exec($(`#premium_exchange_rate_${id} div`).text())[1]);
+            const getTax = (id) => {
+                const text = $(`#premium_exchange_rate_${id} div`).text();
+                const match = /.*?(\d+).*/g.exec(text);
+                return match ? parseInt(match[1]) : null;
+            };
+
             let woodTax = getTax('wood'), stoneTax = getTax('stone'), ironTax = getTax('iron');
+            if (woodTax === null) return;
 
-            let criticalTriggered = [];
-            let normalTriggered = [];
+            let criticalTriggered = []; // < 200
+            let normalTriggered = [];   // < 500
 
-            if (woodTax <= CRITICAL_THRESHOLD) criticalTriggered.push(`DŘEVO: ${woodTax}`);
-            if (stoneTax <= CRITICAL_THRESHOLD) criticalTriggered.push(`HLÍNA: ${stoneTax}`);
-            if (ironTax <= CRITICAL_THRESHOLD) criticalTriggered.push(`ŽELEZO: ${ironTax}`);
+            const resources = [
+                { name: 'Dřevo', val: woodTax, id: 'DŘEVO' },
+                { name: 'Hlína', val: stoneTax, id: 'HLÍNA' },
+                { name: 'Železo', val: ironTax, id: 'ŽELEZO' }
+            ];
 
-            if (woodTax <= 500 && woodTax > CRITICAL_THRESHOLD) normalTriggered.push(`Dřevo (${woodTax})`);
-            if (stoneTax <= 500 && stoneTax > CRITICAL_THRESHOLD) normalTriggered.push(`Hlína (${stoneTax})`);
-            if (ironTax <= 500 && ironTax > CRITICAL_THRESHOLD) normalTriggered.push(`Železo (${ironTax})`);
+            resources.forEach(res => {
+                if (res.val <= CRITICAL_THRESHOLD) {
+                    criticalTriggered.push(`${res.id}: ${res.val}`);
+                } else if (res.val <= 500) {
+                    normalTriggered.push(`${res.name} (${res.val})`);
+                }
+            });
 
             const now = Date.now();
             const lastAlert = parseInt(sessionStorage.getItem('lastMarketAlert') || 0);
 
-            // 1. KRITICKÝ ALERT (pod 200) - 3x zpráva + @everyone
+            // 1. KRITICKÝ ALERT (pod 200) - 3x zpráva + zvuk útok
             if (criticalTriggered.length > 0 && (now - lastAlert > 30000)) {
+                TribalWars.playSound("attack");
                 sendDiscordMessage(`# 🚨 !!! KRITICKÁ HODNOTA POD ${CRITICAL_THRESHOLD} !!! 🚨\n# ⚡ ${criticalTriggered.join(' | ')} ⚡\n@everyone KUPUJ OKAMŽITĚ! 🟥🟥🟥`, true);
                 sessionStorage.setItem('lastMarketAlert', now);
             } 
-            // 2. BĚŽNÝ ALERT (pod 500) - 1x zpráva + @everyone
+            // 2. BĚŽNÝ ALERT (pod 500) - 1x zpráva + zvuk slepička
             else if (normalTriggered.length > 0 && (now - lastAlert > 60000)) {
+                TribalWars.playSound("chicken");
                 sendDiscordMessage(`🔔 **Burza Alert (Pod 500):** ${normalTriggered.join(', ')} @everyone`, false);
                 sessionStorage.setItem('lastMarketAlert', now);
             }
-        } catch (e) { console.log("Čekám na načtení dat z trhu..."); }
+        } catch (e) { console.log("Hledám data trhu..."); }
     };
 
+    // Vyčištění panelu a vložení nového
     $('.PEA-container-fixed').remove(); 
     $('#market_status_bar').after(notificationConfig);
-
+    
+    // Okamžitá kontrola
     _checkMarket();
 
+    // Náhodný refresh 5-9 sekund
     const nextRefresh = Math.floor(Math.random() * (refreshMax - refreshMin + 1)) + refreshMin;
-    console.log(`Příští refresh za ${nextRefresh / 1000}s. Monitoring aktivní.`);
-    
     setTimeout(() => {
         if (window.location.href.indexOf('mode=exchange') > -1) {
             window.location.reload();
@@ -79,5 +97,5 @@
     })
 }, `<div class="PEA-container-fixed" style="border: 2px solid #7d510f; padding: 15px; background: #e3d5b3; margin: 10px 0; border-radius: 5px;">
     <h3 style="margin:0; color: #4b2e04;">🛡️ Burza Monitor Aktivní</h3>
-    <p style="margin: 5px 0 0 0;">Upozornění pod 500 i 200 s @everyone aktivní.</p>
+    <small>Hlídám ceny pod 500 a 200 | @everyone aktivní</small>
 </div>`);
