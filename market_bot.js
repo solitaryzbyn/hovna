@@ -6,20 +6,6 @@
     
     const nahodnyCas = (min, max) => Math.floor(Math.random() * (max - min + 1) + min);
 
-    function pipni() {
-        try {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            const oscillator = audioCtx.createOscillator();
-            const gainNode = audioCtx.createGain();
-            oscillator.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            oscillator.type = 'sine';
-            oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-            oscillator.start(); oscillator.stop(audioCtx.currentTime + 0.5);
-        } catch (e) {}
-    }
-
     function posliNaDiscord(zprava) {
         fetch(DISCORD_WEBHOOK_URL, {
             method: 'POST',
@@ -28,63 +14,74 @@
         }).catch(err => console.error("Discord error:", err));
     }
 
-    console.log("%c --- MOTOR 8.3: SMART STORAGE --- ", "color: white; background: #2c3e50; font-weight: bold;");
+    console.log("%c --- MOTOR 8.6: MERCHANT TIME TRACKER --- ", "color: white; background: #34495e; font-weight: bold;");
+
+    function ziskejCasNavratuObchodniku() {
+        // Najdeme všechny časy návratu v tabulce obchodníků
+        let casy = Array.from(document.querySelectorAll('span.timer')).map(el => {
+            let t = el.innerText.split(':'); // formát HH:MM:SS nebo MM:SS
+            if (t.length === 3) return (parseInt(t[0]) * 3600) + (parseInt(t[1]) * 60) + parseInt(t[2]);
+            if (t.length === 2) return (parseInt(t[0]) * 60) + parseInt(t[1]);
+            return 60; // default 1 min
+        });
+        
+        if (casy.length === 0) return 60; // Pokud žádné timery nevidí, zkusí to za minutu
+        return Math.min(...casy); // Vrátí nejkratší čas v sekundách
+    }
 
     function hlidatTrh() {
         if (document.getElementById('captcha') || document.querySelector('.h-captcha')) {
-            pipni();
-            posliNaDiscord("🆘 **CAPTCHA!** Bot se zastavil!");
+            posliNaDiscord("🆘 **CAPTCHA!** Bot stojí.");
+            return;
+        }
+
+        // --- KONTROLA OBCHODNÍKŮ ---
+        let obchodniciKapacita = parseInt($("#market_merchant_max_transport").text().replace(/\D/g, ''));
+        if (isNaN(obchodniciKapacita) || obchodniciKapacita < KOLIK_PRODAT) {
+            let vterinDoNavratu = ziskejCasNavratuObchodniku();
+            let milivterin = (vterinDoNavratu * 1000) + nahodnyCas(5000, 15000); // Přidáme 5-15s rezervu
+            
+            console.log("Obchodníci jsou plní. Další se vrátí za " + vterinDoNavratu + "s. Bot jde spát.");
+            setTimeout(() => { location.reload(); }, milivterin);
             return;
         }
 
         const suroviny = ["wood", "stone", "iron"];
         const cesky = { "wood": "Dřevo", "stone": "Hlína", "iron": "Železo" };
         
-        // --- KONTROLA SKLADU (GLOBÁLNÍ) ---
         let jeDostatekAlesponJedne = suroviny.some(typ => {
-            return parseInt($("#" + typ).text().replace(/\D/g, '')) >= MINIMUM_V_ALDEJI;
+            let n = parseInt($("#" + typ).text().replace(/\D/g, ''));
+            return !isNaN(n) && n >= MINIMUM_V_ALDEJI;
         });
 
         if (!jeDostatekAlesponJedne) {
-            console.log("Sklady jsou pod limitem 1200. Odpočívám 5-10 minut...");
-            setTimeout(hlidatTrh, nahodnyCas(300000, 600000)); // Spánek 5-10 minut
-            return;
-        }
-
-        // --- KONTROLA OBCHODNÍKŮ ---
-        let obchodniciNaCeste = parseInt($("#market_merchant_max_transport").text().replace(/\D/g, ''));
-        if (isNaN(obchodniciNaCeste) || obchodniciNaCeste < KOLIK_PRODAT) {
-            console.log("Obchodníci jsou zaneprázdněni. Čekám...");
-            setTimeout(hlidatTrh, nahodnyCas(30000, 60000));
+            console.log("Sklady pod 1200. Čekám 5 minut...");
+            setTimeout(hlidatTrh, 300000);
             return;
         }
 
         let akceProvedena = false;
-
         suroviny.forEach((typ) => {
             if (akceProvedena) return;
+            let n = parseInt($("#" + typ).text().replace(/\D/g, ''));
+            if (n < MINIMUM_V_ALDEJI) return;
 
-            let surovinVAldeji = parseInt($("#" + typ).text().replace(/\D/g, ''));
-            if (surovinVAldeji < MINIMUM_V_ALDEJI) return;
+            let k = PremiumExchange.data.capacity[typ];
+            let s = PremiumExchange.data.stock[typ];
+            let f = PremiumExchange.calculateMarginalPrice(s, k);
+            let kurz = Math.floor(1 / f);
 
-            let kapacita = PremiumExchange.data.capacity[typ];
-            let sklad = PremiumExchange.data.stock[typ];
-            let faktor = PremiumExchange.calculateMarginalPrice(sklad, kapacita);
-            let aktualniKurz = Math.floor(1 / faktor);
-
-            if (aktualniKurz <= LIMIT_PRO_PRODEJ) {
+            if (kurz <= LIMIT_PRO_PRODEJ) {
                 let input = $("input[name='sell_" + typ + "']");
                 if (input.length > 0 && !document.querySelector('.btn-confirm-yes')) {
-                    pipni();
                     input.val(KOLIK_PRODAT).trigger('change');
                     akceProvedena = true;
                     setTimeout(() => {
                         $(".btn-premium-exchange-buy").click();
                         setTimeout(() => {
-                            let confirmBtn = $(".btn-confirm-yes");
-                            if (confirmBtn.length > 0 && confirmBtn.is(':visible')) {
-                                confirmBtn.click();
-                                posliNaDiscord("💰 **PRODÁNO!** " + cesky[typ] + " (Kurz: " + aktualniKurz + ")");
+                            if ($(".btn-confirm-yes").is(':visible')) {
+                                $(".btn-confirm-yes").click();
+                                posliNaDiscord("💰 **PRODÁNO!** " + cesky[typ] + " za kurz " + kurz);
                                 setTimeout(() => { location.reload(); }, 5000);
                             }
                         }, 2500);
@@ -93,11 +90,8 @@
             }
         });
 
-        if (!akceProvedena) {
-            setTimeout(hlidatTrh, nahodnyCas(10000, 15000));
-        }
+        if (!akceProvedena) setTimeout(hlidatTrh, nahodnyCas(10000, 15000));
     }
 
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) hlidatTrh(); });
     hlidatTrh();
 })();
