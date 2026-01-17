@@ -6,10 +6,7 @@
     // NASTAVENÍ ČASU (1h základ + 1-8 min náhoda)
     const WAIT_TIME = 3600000; 
     const MIN_OFFSET = 60000; 
-    const RANDOM_SPREAD = Math.floor(Math.random() * 420000); 
-    const TOTAL_DELAY = WAIT_TIME + MIN_OFFSET + RANDOM_SPREAD;
 
-    // Funkce pro AUDIO ALARM
     async function playAlarm() {
         try {
             const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -57,23 +54,21 @@
         playAlarm(); 
     }
 
-    async function runScavenging() {
+    async function runScavengingCycle() {
+        console.log(`[Bot] Spouštím nový cyklus: ${new Date().toLocaleTimeString()}`);
+
         if (isCaptchaPresent()) {
             await stopBot("Byla detekována hCaptcha! Bot se zastavil.");
             return;
         }
 
+        // Inicializace TwCheese (pokud ještě není)
         if (window.TwCheese === undefined) {
             const core = {
-                ROOT: REPO_URL,
-                version: '1.10-1-rev-custom',
-                tools: {},
+                ROOT: REPO_URL, version: '1.10-custom', tools: {},
                 fetchLib: async function(path) {
                     return new Promise((res, rej) => {
-                        $.ajax(`${this.ROOT}/${path}`, {
-                            cache: true, dataType: "script", complete: res,
-                            error: (xhr) => rej(new Error(`Chyba: ${path}`))
-                        });
+                        $.ajax(`${this.ROOT}/${path}`, { cache: true, dataType: "script", complete: res, error: (xhr) => rej(new Error(path)) });
                     });
                 },
                 registerTool(t) { this.tools[t.id] = t; },
@@ -99,41 +94,21 @@
                 await TwCheese.loadToolCompiled(TOOL_ID, 'edf88e826f1d77c559ccfac91be036d2');
             }
             TwCheese.use(TOOL_ID);
-            console.log('[Bot] ASS spuštěn, odesílám zprava doleva...');
 
+            // Odesílání zprava doleva s prodlevou
             setTimeout(async () => {
-                let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'));
-                buttons.reverse(); 
-
+                let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button')).reverse();
                 let count = 0;
                 for (const btn of buttons) {
                     if (!btn.classList.contains('btn-disabled') && btn.offsetParent !== null) {
                         btn.click();
                         count++;
-                        const humanDelay = 1200 + Math.floor(Math.random() * 800);
-                        await sleep(humanDelay);
+                        await sleep(1300 + Math.floor(Math.random() * 700));
                     }
                 }
                 console.log(`[Bot] Odesláno ${count} sběrů.`);
-            }, 4000);
-
-        } catch (err) {
-            await stopBot(`Chyba ASS: ${err.message}`);
-            return;
-        }
-
-        const minutes = Math.floor(TOTAL_DELAY / 60000);
-        const seconds = Math.floor((TOTAL_DELAY % 60000) / 1000);
-        console.log(`[Bot] Další refresh za ${minutes}m ${seconds}s.`);
-        
-        setTimeout(() => {
-            if (!isCaptchaPresent()) {
-                location.reload();
-            } else {
-                stopBot("Captcha před refreshem! Zastavuji.");
-            }
-        }, TOTAL_DELAY);
-    }
-
-    runScavenging();
-})();
+                
+                // Naplánování dalšího cyklu MÍSTO refreshe
+                const randomSpread = Math.floor(Math.random() * 420000);
+                const nextDelay = WAIT_TIME + MIN_OFFSET + randomSpread;
+                console.log(`[Bot] Další cyklus za ${Math.floor(nextDelay/6000
