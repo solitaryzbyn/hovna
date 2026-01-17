@@ -3,10 +3,29 @@
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1461838230663200890/Ff_OIbBuC3zMxKZFinwxmoJchc2Jq2h2l_nBddEp5hTE3Ys4o1-FCnpAZy20Zv92YnYf';
 
-    const WAIT_TIME = 7200000; 
+    const WAIT_TIME = 3600000; 
     const MIN_OFFSET = 60000; 
     const RANDOM_SPREAD = Math.floor(Math.random() * 420000); 
     const TOTAL_DELAY = WAIT_TIME + MIN_OFFSET + RANDOM_SPREAD;
+
+    // Funkce pro AUDIO ALARM
+    async function playAlarm() {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const playTone = () => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // Tón A5
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+        };
+        // Opakování alarmu každých 5 sekund
+        setInterval(playTone, 5000);
+        playTone();
+    }
 
     async function notifyDiscord(message) {
         if (!DISCORD_WEBHOOK_URL) return;
@@ -30,9 +49,15 @@
 
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
+    async function stopBot(reason) {
+        console.error(`[Bot] STOP: ${reason}`);
+        await notifyDiscord(reason);
+        playAlarm(); // Spustí zvukový poplach
+    }
+
     async function runScavenging() {
         if (isCaptchaPresent()) {
-            await notifyDiscord("Byla detekována hCaptcha! Bot se zastavil.");
+            await stopBot("Byla detekována hCaptcha! Bot se zastavil.");
             return;
         }
 
@@ -62,7 +87,7 @@
                 await TwCheese.loadToolCompiled('Sidebar', 'b020ae3be1df353f2aefbc1f2662d0cf');
                 TwCheese.use('Sidebar');
             } catch (err) {
-                await notifyDiscord(`Chyba inicializace: ${err.message}`);
+                await stopBot(`Chyba inicializace: ${err.message}`);
                 return;
             }
         }
@@ -72,14 +97,9 @@
                 await TwCheese.loadToolCompiled(TOOL_ID, 'edf88e826f1d77c559ccfac91be036d2');
             }
             TwCheese.use(TOOL_ID);
-            console.log('[Bot] ASS spuštěn, čekám na výpočet (zprava doleva)...');
-
-            // --- PŘIROZENÉ ODESÍLÁNÍ ZPRAVA DOLEVA ---
+            
             setTimeout(async () => {
-                // Najdeme všechna odesílací tlačítka a převedeme na pole
                 let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'));
-                
-                // OBRÁCENÍ POŘADÍ (Zprava doleva)
                 buttons.reverse(); 
 
                 let count = 0;
@@ -87,16 +107,15 @@
                     if (!btn.classList.contains('btn-disabled') && btn.offsetParent !== null) {
                         btn.click();
                         count++;
-                        // Lidská prodleva 1.2s - 2s
                         const humanDelay = 1200 + Math.floor(Math.random() * 800);
                         await sleep(humanDelay);
                     }
                 }
-                console.log(`[Bot] Automaticky odesláno ${count} sběrů (v pořadí od nejvyššího).`);
-            }, 3500); // Mírně delší prodleva pro jistotu výpočtu ASS
+                console.log(`[Bot] Odesláno ${count} sběrů.`);
+            }, 3500);
 
         } catch (err) {
-            await notifyDiscord(`Chyba ASS: ${err.message}`);
+            await stopBot(`Chyba ASS: ${err.message}`);
             return;
         }
 
@@ -107,7 +126,7 @@
             if (!isCaptchaPresent()) {
                 location.reload();
             } else {
-                notifyDiscord("Captcha před refreshem! Stop.");
+                stopBot("Captcha před refreshem! Zastavuji.");
             }
         }, TOTAL_DELAY);
     }
