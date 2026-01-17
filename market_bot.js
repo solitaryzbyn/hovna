@@ -1,6 +1,6 @@
 (function () {
     const LIMIT_PRO_PRODEJ = 200; 
-    const KOLIK_PRODAT = 1000;    
+    const KOLIK_PRODAT = 800;    
     const MINIMUM_V_ALDEJI = 1200; 
     const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1461838230663200890/Ff_OIbBuC3zMxKZFinwxmoJchc2Jq2h2l_nBddEp5hTE3Ys4o1-FCnpAZy20Zv92YnY";
     
