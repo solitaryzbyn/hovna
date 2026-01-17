@@ -3,6 +3,7 @@
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1461838230663200890/Ff_OIbBuC3zMxKZFinwxmoJchc2Jq2h2l_nBddEp5hTE3Ys4o1-FCnpAZy20Zv92YnYf';
 
+    // NASTAVENÍ ČASU (1h základ + 1-8 min náhoda)
     const WAIT_TIME = 3600000; 
     const MIN_OFFSET = 60000; 
     const RANDOM_SPREAD = Math.floor(Math.random() * 420000); 
@@ -10,21 +11,22 @@
 
     // Funkce pro AUDIO ALARM
     async function playAlarm() {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const playTone = () => {
-            const osc = audioCtx.createOscillator();
-            const gain = audioCtx.createGain();
-            osc.connect(gain);
-            gain.connect(audioCtx.destination);
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // Tón A5
-            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.5);
-        };
-        // Opakování alarmu každých 5 sekund
-        setInterval(playTone, 5000);
-        playTone();
+        try {
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const playTone = () => {
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.5);
+            };
+            setInterval(playTone, 5000);
+            playTone();
+        } catch (e) { console.error("Audio error", e); }
     }
 
     async function notifyDiscord(message) {
@@ -52,7 +54,7 @@
     async function stopBot(reason) {
         console.error(`[Bot] STOP: ${reason}`);
         await notifyDiscord(reason);
-        playAlarm(); // Spustí zvukový poplach
+        playAlarm(); 
     }
 
     async function runScavenging() {
@@ -97,7 +99,8 @@
                 await TwCheese.loadToolCompiled(TOOL_ID, 'edf88e826f1d77c559ccfac91be036d2');
             }
             TwCheese.use(TOOL_ID);
-            
+            console.log('[Bot] ASS spuštěn, odesílám zprava doleva...');
+
             setTimeout(async () => {
                 let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'));
                 buttons.reverse(); 
@@ -112,7 +115,7 @@
                     }
                 }
                 console.log(`[Bot] Odesláno ${count} sběrů.`);
-            }, 3500);
+            }, 4000);
 
         } catch (err) {
             await stopBot(`Chyba ASS: ${err.message}`);
@@ -120,7 +123,8 @@
         }
 
         const minutes = Math.floor(TOTAL_DELAY / 60000);
-        console.log(`[Bot] Další refresh za ${minutes} minut.`);
+        const seconds = Math.floor((TOTAL_DELAY % 60000) / 1000);
+        console.log(`[Bot] Další refresh za ${minutes}m ${seconds}s.`);
         
         setTimeout(() => {
             if (!isCaptchaPresent()) {
