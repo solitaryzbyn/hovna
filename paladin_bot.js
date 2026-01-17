@@ -2,7 +2,7 @@
     'use strict';
 
     //****************************** Konfigurace ******************************//
-    const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1461838230663200890/Ff_OIbBuC3zMxKZFinwxmoJchc2Jq2h2l_nBddEp5hTE3Ys4o1-FCnpAZy20Zv92YnYf";
+    const DISCORD_WEBHOOK = "https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu";
     const minCheckInterval = 5000; 
     const maxCheckInterval = 10000; 
     //*************************** Konec Konfigurace ***************************//
