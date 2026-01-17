@@ -2,7 +2,7 @@
     const LIMIT_PRO_PRODEJ = 300; 
     const KOLIK_PRODAT = 900;    
     const MINIMUM_V_ALDEJI = 1200; 
-    const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1461838230663200890/Ff_OIbBuC3zMxKZFinwxmoJchc2Jq2h2l_nBddEp5hTE3Ys4o1-FCnpAZy20Zv92YnYf";
+    const DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu";
     
     const nahodnyCas = (min, max) => Math.floor(Math.random() * (max - min + 1) + min);
 
