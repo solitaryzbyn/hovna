@@ -7,41 +7,28 @@
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- ULTIMÁTNÍ DETEKCE VOLNÝCH SLOTŮ ---
-    function getFreeSlotsCount() {
-        let freeCount = 0;
-        // Procházíme všechny 4 hlavní kontejnery sběru
-        $('.scavenge-option').each(function() {
-            const statusText = $(this).find('.status-specific').text().trim();
-            const hasTimer = $(this).find('.timer').length > 0;
-            const hasActiveButton = $(this).find('.btn-send, .free_send_button').not('.btn-disabled').is(':visible');
-
-            // Slot je volný, pokud: 
-            // 1. Text statusu obsahuje "Sběr surovin" (výchozí stav)
-            // 2. Neobsahuje žádný běžící časovač (.timer)
-            // 3. Tlačítko je viditelné a není zašedlé
-            if ((statusText.includes("Sběr surovin") || statusText === "") && !hasTimer && hasActiveButton) {
-                freeCount++;
-            }
-        });
-        return freeCount;
+    // --- NOVÁ STRATEGIE: POČÍTÁNÍ TLAČÍTEK ---
+    function getAvailableButtonsCount() {
+        // Hledáme pouze viditelná a ne-zakázaná tlačítka pro start sběru
+        return $('.btn-send, .free_send_button').filter(function() {
+            return $(this).is(':visible') && !$(this).hasClass('btn-disabled') && $(this).offsetParent() !== null;
+        }).length;
     }
 
     async function runScavengingCycle() {
         if (document.getElementById('bot_check') || document.querySelector('.h-captcha')) return;
 
-        // Kontrola: Musíme mít potvrzeny VŠECHNY 4 sloty jako čisté
-        const freeSlots = getFreeSlotsCount();
+        // KONTROLA: Musí být volné všechny 4 sloty
+        const freeSlots = getAvailableButtonsCount();
         
         if (freeSlots < 4) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Detekováno pouze ${freeSlots}/4 volných slotů. Čekám 3 minuty...`, "color: orange; font-weight: bold;");
-            setTimeout(runScavengingCycle, 180000); // Kontrola každé 3 minuty
+            console.log(`%c[Bot] SYNCHRONIZACE: Volné pouze ${freeSlots}/4 sloty. Čekám 5 minut na návrat ostatních...`, "color: orange; font-weight: bold;");
+            setTimeout(runScavengingCycle, 300000); // Kontrola každých 5 minut, dokud nejsou všichni doma
             return;
         }
 
-        console.log(`%c[Bot] OK: Všechny 4 sloty jsou připraveny. Zahajuji hromadný start: ${getEuroTime()}`, "color: yellow; font-weight: bold;");
+        console.log(`%c[Bot] POTVRZENO: Všechny 4 sloty jsou volné. Startuji: ${getEuroTime()}`, "color: yellow; font-weight: bold;");
 
-        // Inicializace TwCheese
         if (window.TwCheese === undefined) {
             window.TwCheese = {
                 ROOT: REPO_URL, tools: {},
@@ -58,20 +45,20 @@
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             
-            await sleep(5000); // 5s pauza pro stabilitu DOMu po návratu vojsk
+            await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            console.log('%c[Bot] 30s delay pro preference...', 'color: orange;');
+            console.log('%c[Bot] 30s delay pro ASS preference...', 'color: orange;');
             await sleep(30000);
 
-            // Získání tlačítek ZPRAVA DOLEVA
+            // ZPRAVA DOLEVA (Otočené pořadí)
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
                                .reverse();
 
-            // Finální pojistka počtu
+            // Finální kontrola počtu těsně před klikem
             if (buttons.length < 4) {
-                console.log("%c[Bot] Chyba synchronizace v ASS rozhraní, zkusím znovu.", "color: red;");
+                console.log("%c[Bot] Chyba synchronizace na poslední chvíli, restartuji.", "color: red;");
                 runScavengingCycle();
                 return;
             }
@@ -91,7 +78,7 @@
             }
 
             const totalDelay = WAIT_TIME + randomSpread + nightDelay;
-            console.log(`%c[Bot] Úspěch. Všech ${count} sběrů odesláno. Další synchronizace v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
+            console.log(`%c[Bot] Hotovo. Odesláno ${count} sběrů. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
             
             setTimeout(runScavengingCycle, totalDelay);
         } catch (err) {
