@@ -7,39 +7,27 @@
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- OPRAVENÁ DETEKCE (Ignoruje nulové časy a prázdné odpočty) ---
-    function isAnythingStillRunning() {
-        let maxMs = 0;
-        // Hledáme časovače pouze tam, kde skutečně probíhá sběr
-        const timerTexts = $('.scavenge-option, .status-specific').find('.timer, span[data-endtime]').toArray();
-        
-        for (let t of timerTexts) {
-            const text = $(t).text().trim();
-            // Regulární výraz: musí to být čas ve formátu HH:MM:SS, který NENÍ 0:00:00 nebo 00:00:00
-            if (text.match(/[1-9]\d*:\d{2}:\d{2}|0:\d*[1-9]\d*:\d{2}|0:00:\d*[1-9]\d*/) || text.match(/[1-9]\d*:\d{2}/)) {
-                const parts = text.split(':').map(Number);
-                let ms = 0;
-                if (parts.length === 3) ms = ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
-                else if (parts.length === 2) ms = ((parts[0] * 60) + parts[1]) * 1000;
-                
-                if (ms > maxMs) maxMs = ms;
-            }
-        }
-        return maxMs;
+    // --- NOVÁ STRATEGIE: POČÍTÁNÍ TLAČÍTEK ---
+    function getAvailableButtonsCount() {
+        // Hledáme pouze viditelná a ne-zakázaná tlačítka pro start sběru
+        return $('.btn-send, .free_send_button').filter(function() {
+            return $(this).is(':visible') && !$(this).hasClass('btn-disabled') && $(this).offsetParent() !== null;
+        }).length;
     }
 
     async function runScavengingCycle() {
         if (document.getElementById('bot_check') || document.querySelector('.h-captcha')) return;
 
-        const remainingMs = isAnythingStillRunning();
-        if (remainingMs > 5000) { // Ignorujeme cokoli pod 5 sekund (doběhy)
-            const totalWait = remainingMs + 20000; 
-            console.log(`%c[Bot] DETEKCE: Sběry běží. Čekám do: ${getEuroTime(new Date(Date.now() + totalWait))}`, "color: orange; font-weight: bold;");
-            setTimeout(runScavengingCycle, totalWait);
+        // KONTROLA: Musí být volné všechny 4 sloty
+        const freeSlots = getAvailableButtonsCount();
+        
+        if (freeSlots < 4) {
+            console.log(`%c[Bot] SYNCHRONIZACE: Volné pouze ${freeSlots}/4 sloty. Čekám 5 minut na návrat ostatních...`, "color: orange; font-weight: bold;");
+            setTimeout(runScavengingCycle, 300000); // Kontrola každých 5 minut, dokud nejsou všichni doma
             return;
         }
 
-        console.log(`%c[Bot] Všechny sloty potvrzeny jako volné. Zahajuji: ${getEuroTime()}`, "color: yellow; font-weight: bold;");
+        console.log(`%c[Bot] POTVRZENO: Všechny 4 sloty jsou volné. Startuji: ${getEuroTime()}`, "color: yellow; font-weight: bold;");
 
         if (window.TwCheese === undefined) {
             window.TwCheese = {
@@ -57,20 +45,21 @@
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             
-            await sleep(4000); //
+            await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            console.log('%c[Bot] 30s delay pro preference...', 'color: orange;');
+            console.log('%c[Bot] 30s delay pro ASS preference...', 'color: orange;');
             await sleep(30000);
 
-            // Pojistka proti prázdnému poli ASS
+            // ZPRAVA DOLEVA (Otočené pořadí)
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
                                .reverse();
 
-            if (buttons.length === 0) {
-                console.log("%c[Bot] Žádná tlačítka nenalezena. Zkusím za 2 minuty.", "color: red;");
-                setTimeout(runScavengingCycle, 120000);
+            // Finální kontrola počtu těsně před klikem
+            if (buttons.length < 4) {
+                console.log("%c[Bot] Chyba synchronizace na poslední chvíli, restartuji.", "color: red;");
+                runScavengingCycle();
                 return;
             }
 
