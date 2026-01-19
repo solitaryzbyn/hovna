@@ -3,7 +3,7 @@
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
 
-    const WAIT_TIME = 3600000; // Základ 1 hodina
+    const WAIT_TIME = 7200000; // Základ 1 hodina
 
     async function playAlarm() {
         try {
