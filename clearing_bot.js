@@ -7,23 +7,34 @@
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- NOVÁ STRATEGIE: POČÍTÁNÍ TLAČÍTEK ---
+    // --- FUNKCE PRO DISCORD ALERT ---
+    async function sendDiscordAlert(message) {
+        console.log(`%c[Discord] Odesílám alert: ${message}`, "color: #7289da;");
+        try {
+            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `⚠️ **[Bot Sběr]** ${message} @everyone` }), null, 'json');
+        } catch (e) {
+            console.error("Nepodařilo se odeslat alert na Discord.");
+        }
+    }
+
     function getAvailableButtonsCount() {
-        // Hledáme pouze viditelná a ne-zakázaná tlačítka pro start sběru
         return $('.btn-send, .free_send_button').filter(function() {
             return $(this).is(':visible') && !$(this).hasClass('btn-disabled') && $(this).offsetParent() !== null;
         }).length;
     }
 
     async function runScavengingCycle() {
-        if (document.getElementById('bot_check') || document.querySelector('.h-captcha')) return;
+        // --- KONTROLA CAPTCHY S ALERTEM ---
+        if (document.getElementById('bot_check') || document.querySelector('.h-captcha')) {
+            console.error("%c[Bot] STOP: CAPTCHA DETEKOVÁNA!", "background: red; color: white;");
+            await sendDiscordAlert("Byla detekována CAPTCHA! Bot se zastavil a vyžaduje tvou pozornost.");
+            return; // Úplné zastavení
+        }
 
-        // KONTROLA: Musí být volné všechny 4 sloty
         const freeSlots = getAvailableButtonsCount();
-        
         if (freeSlots < 4) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Volné pouze ${freeSlots}/4 sloty. Čekám 5 minut na návrat ostatních...`, "color: orange; font-weight: bold;");
-            setTimeout(runScavengingCycle, 300000); // Kontrola každých 5 minut, dokud nejsou všichni doma
+            console.log(`%c[Bot] SYNCHRONIZACE: Volné pouze ${freeSlots}/4 sloty. Čekám 5 minut...`, "color: orange; font-weight: bold;");
+            setTimeout(runScavengingCycle, 300000);
             return;
         }
 
@@ -44,19 +55,16 @@
 
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
-            
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
             console.log('%c[Bot] 30s delay pro ASS preference...', 'color: orange;');
             await sleep(30000);
 
-            // ZPRAVA DOLEVA (Otočené pořadí)
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
                                .reverse();
 
-            // Finální kontrola počtu těsně před klikem
             if (buttons.length < 4) {
                 console.log("%c[Bot] Chyba synchronizace na poslední chvíli, restartuji.", "color: red;");
                 runScavengingCycle();
@@ -83,6 +91,7 @@
             setTimeout(runScavengingCycle, totalDelay);
         } catch (err) {
             console.error("[Bot] Chyba:", err.message);
+            await sendDiscordAlert(`Chyba skriptu: ${err.message}`);
             setTimeout(runScavengingCycle, 300000);
         }
     }
