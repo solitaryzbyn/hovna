@@ -4,13 +4,12 @@
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
 
-    const WAIT_TIME = 7200000; // 1 hodina
+    const WAIT_TIME = 7200000; // Základ 1 hodina
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- VYLEPŠENÁ FUNKCE PRO ZJIŠTĚNÍ ČASU NÁVRATU ---
+    // --- FUNKCE PRO ZJIŠTĚNÍ ČASU NÁVRATU ---
     function getLongestWaitTime() {
-        // Hledáme všechny elementy, které obsahují odpočet (timer)
         const timers = document.querySelectorAll('.scavenge-option .timer, .status-specific .timer');
         let maxSeconds = 0;
 
@@ -29,24 +28,22 @@
     }
 
     async function runScavengingCycle(isFirstRun = false) {
-        // Kontrola Captchy
         if (document.getElementById('bot_check') || document.querySelector('.h-captcha')) {
             console.error("%c[Bot] STOP: CAPTCHA DETEKOVÁNA!", "background: red; color: white;");
             return;
         }
 
-        // --- ZESÍLENÁ KONTROLA AKTIVNÍCH SBĚRŮ ---
+        // Kontrola aktivních sběrů
         const activeWait = getLongestWaitTime();
         if (activeWait > 0) {
-            const resumeTime = new Date(Date.now() + activeWait + 12000); // 12s rezerva
-            console.log(`%c[Bot] Detekovány běžící sběry. Čekám do: ${getEuroTime(resumeTime)}`, "color: orange; font-weight: bold;");
+            const resumeTime = new Date(Date.now() + activeWait + 12000);
+            console.log(`%c[Bot] Sběrači jsou venku. Čekám do: ${getEuroTime(resumeTime)}`, "color: orange; font-weight: bold;");
             setTimeout(() => runScavengingCycle(false), activeWait + 12000);
             return;
         }
 
         console.log(`%c[Bot] Cyklus spuštěn: ${getEuroTime()}`, "color: yellow; font-weight: bold;");
 
-        // Inicializace TwCheese
         if (window.TwCheese === undefined) {
             window.TwCheese = {
                 ROOT: REPO_URL, tools: {},
@@ -64,28 +61,28 @@
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             TwCheese.use(TOOL_ID);
 
-            // 30s delay na preference
             console.log('%c[Bot] 30s delay pro preference...', 'color: orange;');
             await sleep(30000);
 
-            // POSLEDNÍ KONTROLA před klikáním (kdyby mezitím někdo klikl ručně)
             if (getLongestWaitTime() > 0) {
-                console.log("%c[Bot] Detekována aktivita těsně před klikem, odkládám cyklus.", "color: orange;");
                 runScavengingCycle(false);
                 return;
             }
 
-            let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button')).reverse();
+            // --- OPRAVENÉ POŘADÍ: ZPRAVA DOLEVA ---
+            let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
+                               .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
+                               .reverse(); // Otočí pořadí, aby se začalo vpravo
+
             let count = 0;
             for (const btn of buttons) {
-                if (!btn.classList.contains('btn-disabled') && btn.offsetParent !== null) {
-                    btn.click();
-                    count++;
-                    await sleep(1400 + Math.floor(Math.random() * 900));
-                }
+                btn.click();
+                count++;
+                // Lidská prodleva mezi kliky
+                await sleep(1400 + Math.floor(Math.random() * 900));
             }
             
-            // Výpočet prodlev (3.5 - 8.8 min + Noc)
+            // Výpočet prodlev
             const standardRandomDelay = Math.floor(Math.random() * (528000 - 210000 + 1)) + 210000;
             const now = new Date();
             let nightDelay = 0;
@@ -95,7 +92,7 @@
             }
 
             const totalDelay = WAIT_TIME + standardRandomDelay + nightDelay;
-            console.log(`%c[Bot] Hotovo. Další cyklus v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
+            console.log(`%c[Bot] Hotovo. Odesláno ${count} sběrů. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
             
             setTimeout(() => runScavengingCycle(false), totalDelay);
 
