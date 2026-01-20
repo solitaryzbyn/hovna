@@ -1,31 +1,30 @@
 (async function() {
+    // --- KONFIGURACE ---
     const TOOL_ID = 'ASS';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
 
-    const WAIT_TIME = 7200000; // 2 hodiny
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
+    // --- FUNKCE PRO DISCORD ALERT ---
     async function sendDiscordAlert(message) {
         try {
             await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `⚠️ **[Bot Sběr]** ${message} @everyone` }), null, 'json');
         } catch (e) { console.error("Discord error"); }
     }
 
-    // --- VYLEPŠENÁ DETEKCE: ROZEZNÁVÁ BĚŽÍCÍ VÝZKUM ---
+    // --- DETEKCE ODEMČENÝCH A POUŽITELNÝCH SLOTŮ ---
     function getScavengeStatus() {
         const allSlots = $('.scavenge-option');
         let usableCount = 0;
         let readyToClick = 0;
 
         allSlots.each(function() {
-            // Slot je použitelný pouze pokud není zamčený A zároveň není v procesu odemykání
             const isLocked = $(this).find('.lock').length > 0;
             const isUnlocking = $(this).find('.unlock-button').length > 0 || 
-                               $(this).find('.timer').length > 0 && $(this).find('.btn-send').length === 0 && $(this).find('.status-specific').text().includes('Odemykání');
+                               ($(this).find('.timer').length > 0 && $(this).find('.btn-send').length === 0 && $(this).find('.status-specific').text().includes('Odemykání'));
             
-            // Kontrola existence tlačítka nebo běžícího sběru (ne výzkumu)
             const hasSendButton = $(this).find('.btn-send, .free_send_button').length > 0;
             const isScavenging = $(this).find('.status-specific').text().includes('Sběr') || $(this).find('.timer').length > 0;
 
@@ -35,34 +34,38 @@
                 if (btn.length > 0) readyToClick++;
             }
         });
-
         return { total: usableCount, ready: readyToClick };
     }
 
+    // --- ČTENÍ ČASU Z ASS ROZHRANÍ ---
+    function getASSTimePreference() {
+        const timeInput = $('input[name="scavenge_option_duration"], .scavenge-option-duration input').first();
+        if (timeInput.length > 0) {
+            const hours = parseFloat(timeInput.val());
+            if (!isNaN(hours) && hours > 0) {
+                console.log(`%c[Bot] Čas z ASS: ${hours}h`, "color: #bada55;");
+                return hours * 3600000; 
+            }
+        }
+        return 7200000; // Fallback 2h
+    }
+
     async function runScavengingCycle() {
+        // Kontrola Captchy
         if (document.getElementById('bot_check') || document.querySelector('.h-captcha')) {
             await sendDiscordAlert("Byla detekována CAPTCHA!");
             return;
         }
 
+        // Synchronizace podle odemčených slotů
         const status = getScavengeStatus();
-        
-        // Pokud nemáme žádné použitelné sloty (vše se teprve odemyká), počkáme
-        if (status.total === 0) {
-            console.log("%c[Bot] Žádné sloty zatím nejsou odemčené k použití. Čekám 10 minut...", "color: orange;");
-            setTimeout(runScavengingCycle, 600000);
-            return;
-        }
-
-        // Synchronizace: Čekáme pouze na ty sloty, které jsou skutečně odemčené
-        if (status.ready < status.total) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Volné ${status.ready}/${status.total} použitelných slotů. Čekám 5 minut...`, "color: orange; font-weight: bold;");
+        if (status.total > 0 && status.ready < status.total) {
+            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na ${status.ready}/${status.total} slotů...`, "color: orange; font-weight: bold;");
             setTimeout(runScavengingCycle, 300000);
             return;
         }
 
-        console.log(`%c[Bot] POTVRZENO: Všech ${status.total} odemčených slotů je volných. Startuji...`, "color: yellow; font-weight: bold;");
-
+        // Inicializace TwCheese
         if (window.TwCheese === undefined) {
             window.TwCheese = {
                 ROOT: REPO_URL, tools: {},
@@ -84,6 +87,9 @@
             console.log('%c[Bot] 30s delay pro preference...', 'color: orange;');
             await sleep(30000);
 
+            // Dynamický základní čas
+            const dynamicWaitTime = getASSTimePreference();
+
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
                                .reverse();
@@ -102,8 +108,8 @@
                 nightDelay = (Math.floor(Math.random() * (69 - 30 + 1)) + 30) * 60000;
             }
 
-            const totalDelay = WAIT_TIME + randomSpread + nightDelay;
-            console.log(`%c[Bot] Odesláno ${count} sběrů. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
+            const totalDelay = dynamicWaitTime + randomSpread + nightDelay;
+            console.log(`%c[Bot] Hotovo. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
             
             setTimeout(runScavengingCycle, totalDelay);
         } catch (err) {
