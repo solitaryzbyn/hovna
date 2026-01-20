@@ -1,5 +1,4 @@
 (async function() {
-    // --- KONFIGURACE ---
     const TOOL_ID = 'ASS';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -7,14 +6,12 @@
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- FUNKCE PRO DISCORD ALERT ---
     async function sendDiscordAlert(message) {
         try {
             await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `⚠️ **[Bot Sběr]** ${message} @everyone` }), null, 'json');
         } catch (e) { console.error("Discord error"); }
     }
 
-    // --- DETEKCE ODEMČENÝCH A POUŽITELNÝCH SLOTŮ ---
     function getScavengeStatus() {
         const allSlots = $('.scavenge-option');
         let usableCount = 0;
@@ -37,35 +34,34 @@
         return { total: usableCount, ready: readyToClick };
     }
 
-    // --- ČTENÍ ČASU Z ASS ROZHRANÍ ---
+    // --- FUNKCE PRO ČTENÍ ČASU Z ASS ---
     function getASSTimePreference() {
+        // Hledáme políčko pro délku trvání v rozhraní ASS
         const timeInput = $('input[name="scavenge_option_duration"], .scavenge-option-duration input').first();
         if (timeInput.length > 0) {
             const hours = parseFloat(timeInput.val());
             if (!isNaN(hours) && hours > 0) {
-                console.log(`%c[Bot] Čas z ASS: ${hours}h`, "color: #bada55;");
+                console.log(`%c[Bot] Úspěšně načten čas z ASS: ${hours}h`, "color: #bada55; font-weight: bold;");
                 return hours * 3600000; 
             }
         }
-        return 7200000; // Fallback 2h
+        console.log("%c[Bot] Nepodařilo se načíst čas z ASS, používám výchozí 2h.", "color: #ff8000;");
+        return 7200000; 
     }
 
     async function runScavengingCycle() {
-        // Kontrola Captchy
         if (document.getElementById('bot_check') || document.querySelector('.h-captcha')) {
             await sendDiscordAlert("Byla detekována CAPTCHA!");
             return;
         }
 
-        // Synchronizace podle odemčených slotů
         const status = getScavengeStatus();
         if (status.total > 0 && status.ready < status.total) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na ${status.ready}/${status.total} slotů...`, "color: orange; font-weight: bold;");
+            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na uvolnění všech ${status.total} slotů...`, "color: orange;");
             setTimeout(runScavengingCycle, 300000);
             return;
         }
 
-        // Inicializace TwCheese
         if (window.TwCheese === undefined) {
             window.TwCheese = {
                 ROOT: REPO_URL, tools: {},
@@ -84,10 +80,11 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            console.log('%c[Bot] 30s delay pro preference...', 'color: orange;');
+            // --- KLÍČOVÝ BOD: Čekáme 30s na aplikaci tvých preferencí ---
+            console.log('%c[Bot] 30s pauza pro načtení tvého nastavení v ASS...', 'color: orange;');
             await sleep(30000);
 
-            // Dynamický základní čas
+            // TEPRVE TEĎ čteme nastavený čas z políčka
             const dynamicWaitTime = getASSTimePreference();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
@@ -101,6 +98,7 @@
                 await sleep(1800 + Math.floor(Math.random() * 1000));
             }
             
+            // Lidské prodlevy (3.5 - 8.8 min)
             const randomSpread = Math.floor(Math.random() * (528000 - 210000 + 1)) + 210000;
             const now = new Date();
             let nightDelay = 0;
@@ -109,7 +107,7 @@
             }
 
             const totalDelay = dynamicWaitTime + randomSpread + nightDelay;
-            console.log(`%c[Bot] Hotovo. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
+            console.log(`%c[Bot] Hotovo. Další cyklus za cca ${Math.round(totalDelay/60000)} min v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
             
             setTimeout(runScavengingCycle, totalDelay);
         } catch (err) {
