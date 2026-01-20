@@ -1,6 +1,6 @@
 (async function() {
     // --- KONFIGURACE A ZÁMEK ---
-    const REQUIRED_PLAYER = 'kubasob'; // SER HIGHTOWER
+    const REQUIRED_PLAYER = 'kubasob';
     
     const TOOL_ID = 'ASS';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
