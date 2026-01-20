@@ -1,7 +1,6 @@
 (async function() {
     // --- KONFIGURACE A ZÁMEK ---
-    const REQUIRED_PLAYER = 'kubasob';
-    const REQUIRED_WORLD = 'cs109';
+    const REQUIRED_PLAYER = 'kubasob'; // SER HIGHTOWER
     
     const TOOL_ID = 'ASS';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
@@ -38,9 +37,9 @@
     }
 
     async function runScavengingCycle() {
-        // 1. KONTROLA ZÁMKU (Jméno a Server)
-        if (window.game_data.player.name !== REQUIRED_PLAYER || window.game_data.world !== REQUIRED_WORLD) {
-            const errorMsg = `Kritická chyba: Bot spuštěn na špatném účtu (${window.game_data.player.name}) nebo světě (${window.game_data.world})! Zastavuji...`;
+        // 1. KONTROLA ZÁMKU (Pouze Jméno)
+        if (window.game_data.player.name !== REQUIRED_PLAYER) {
+            const errorMsg = `Kritická chyba: Bot spuštěn na špatném účtu (${window.game_data.player.name})! Zastavuji...`;
             console.error(errorMsg);
             await sendDiscordAlert(errorMsg);
             return;
