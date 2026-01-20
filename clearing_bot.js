@@ -3,42 +3,52 @@
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
 
-    const WAIT_TIME = 7200000; // 2 hodiny
+    const WAIT_TIME = 7200000; 
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- FUNKCE PRO DISCORD ALERT ---
     async function sendDiscordAlert(message) {
-        console.log(`%c[Discord] Odesílám alert: ${message}`, "color: #7289da;");
         try {
             await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `⚠️ **[Bot Sběr]** ${message} @everyone` }), null, 'json');
-        } catch (e) {
-            console.error("Nepodařilo se odeslat alert na Discord.");
-        }
+        } catch (e) { console.error("Discord error"); }
     }
 
-    function getAvailableButtonsCount() {
-        return $('.btn-send, .free_send_button').filter(function() {
-            return $(this).is(':visible') && !$(this).hasClass('btn-disabled') && $(this).offsetParent() !== null;
-        }).length;
+    // --- OPRAVENÁ DETEKCE: POČÍTÁ POUZE ODEMČENÉ SLOTY ---
+    function getScavengeStatus() {
+        const allSlots = $('.scavenge-option');
+        let unlockedCount = 0;
+        let readyToClick = 0;
+
+        allSlots.each(function() {
+            const isLocked = $(this).find('.lock').length > 0; // Slot je úplně zamčený
+            const isUnlocking = $(this).find('.unlock-button').length > 0 || $(this).text().includes('Odemykání'); // Právě se zkoumá
+
+            if (!isLocked && !isUnlocking) {
+                unlockedCount++; // Tento slot už hráč vlastní
+                const btn = $(this).find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
+                if (btn.length > 0) readyToClick++;
+            }
+        });
+
+        return { total: unlockedCount, ready: readyToClick };
     }
 
     async function runScavengingCycle() {
-        // --- KONTROLA CAPTCHY S ALERTEM ---
         if (document.getElementById('bot_check') || document.querySelector('.h-captcha')) {
-            console.error("%c[Bot] STOP: CAPTCHA DETEKOVÁNA!", "background: red; color: white;");
-            await sendDiscordAlert("Byla detekována CAPTCHA! Bot se zastavil a vyžaduje tvou pozornost.");
-            return; // Úplné zastavení
+            await sendDiscordAlert("Byla detekována CAPTCHA!");
+            return;
         }
 
-        const freeSlots = getAvailableButtonsCount();
-        if (freeSlots < 4) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Volné pouze ${freeSlots}/4 sloty. Čekám 5 minut...`, "color: orange; font-weight: bold;");
+        const status = getScavengeStatus();
+        
+        // Synchronizace: Bot čeká, dokud nejsou volné VŠECHNY odemčené sloty
+        if (status.ready < status.total) {
+            console.log(`%c[Bot] SYNCHRONIZACE: Volné ${status.ready}/${status.total} odemčených slotů. Čekám 5 minut...`, "color: orange; font-weight: bold;");
             setTimeout(runScavengingCycle, 300000);
             return;
         }
 
-        console.log(`%c[Bot] POTVRZENO: Všechny 4 sloty jsou volné. Startuji: ${getEuroTime()}`, "color: yellow; font-weight: bold;");
+        console.log(`%c[Bot] POTVRZENO: Všech ${status.total} dostupných slotů je volných. Startuji...`, "color: yellow; font-weight: bold;");
 
         if (window.TwCheese === undefined) {
             window.TwCheese = {
@@ -58,18 +68,12 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            console.log('%c[Bot] 30s delay pro ASS preference...', 'color: orange;');
+            console.log('%c[Bot] 30s delay pro preference...', 'color: orange;');
             await sleep(30000);
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
                                .reverse();
-
-            if (buttons.length < 4) {
-                console.log("%c[Bot] Chyba synchronizace na poslední chvíli, restartuji.", "color: red;");
-                runScavengingCycle();
-                return;
-            }
 
             let count = 0;
             for (const btn of buttons) {
@@ -86,12 +90,11 @@
             }
 
             const totalDelay = WAIT_TIME + randomSpread + nightDelay;
-            console.log(`%c[Bot] Hotovo. Odesláno ${count} sběrů. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
+            console.log(`%c[Bot] Odesláno ${count} sběrů. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
             
             setTimeout(runScavengingCycle, totalDelay);
         } catch (err) {
             console.error("[Bot] Chyba:", err.message);
-            await sendDiscordAlert(`Chyba skriptu: ${err.message}`);
             setTimeout(runScavengingCycle, 300000);
         }
     }
