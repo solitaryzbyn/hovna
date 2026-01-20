@@ -7,7 +7,6 @@
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- FUNKCE PRO DISCORD ALERT ---
     async function sendDiscordAlert(message) {
         try {
             await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ 
@@ -16,7 +15,7 @@
         } catch (e) { console.error("Discord alert failed."); }
     }
 
-    // --- ZESÍLENÁ DETEKCE CAPTCHY (Podle tvých snímků) ---
+    // --- MAXIMÁLNÍ DETEKCE CAPTCHY (Podle tvého seznamu) ---
     function isCaptchaPresent() {
         const captchaSelectors = [
             '#bot_check',                // Klasický bot check
@@ -32,13 +31,10 @@
                 return true;
             }
         }
-
-        // Kontrola specifických textů v chybových hláškách nebo oknech
         const bodyText = document.body.innerText;
         if (bodyText.includes('Ověření člověka') || bodyText.includes('robot check') || bodyText.includes('captcha')) {
             return true;
         }
-
         return false;
     }
 
@@ -64,23 +60,24 @@
         return { total: usableCount, ready: readyToClick };
     }
 
+    // --- DYNAMICKÉ ČTENÍ ČASU Z ASS ---
     function getASSTimePreference() {
         const timeInput = $('input[name="scavenge_option_duration"], .scavenge-option-duration input, .scavenge-option-duration-input').first();
         if (timeInput.length > 0) {
             const hours = parseFloat(timeInput.val());
             if (!isNaN(hours) && hours > 0) {
+                console.log(`%c[Bot] Načten čas z ASS: ${hours}h`, "color: #bada55; font-weight: bold;");
                 return hours * 3600000; 
             }
         }
-        return 7200000; 
+        return 7200000; // Fallback 2h
     }
 
     async function runScavengingCycle() {
-        // --- PROTI-BOT OCHRANA ---
         if (isCaptchaPresent()) {
-            console.error("%c[Bot] STOP: DETEKOVÁNA CAPTCHA!", "background: red; color: white; font-size: 20px;");
-            await sendDiscordAlert("Byla detekována CAPTCHA! Bot byl okamžitě zastaven, aby se zabránilo banu. Vyřeš ověření a znovu aktivuj skript.");
-            return; // Úplné ukončení skriptu, žádný další setTimeout
+            console.error("%c[Bot] STOP: DETEKOVÁNA CAPTCHA!", "background: red; color: white;");
+            await sendDiscordAlert("Byla detekována CAPTCHA! Bot byl okamžitě zastaven.");
+            return;
         }
 
         const status = getScavengeStatus();
@@ -108,8 +105,12 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            console.log('%c[Bot] 30s pauza pro preference...', 'color: orange;');
-            await sleep(30000);
+            // Čekání 30s před čtením času
+            console.log('%c[Bot] 30s pauza pro načtení nastavení...', 'color: orange;');
+            for(let i=30; i>0; i--) {
+                if(i % 10 === 0) console.log(`%c[Bot] Zbývá ${i}s...`, 'color: gray;');
+                await sleep(1000);
+            }
 
             const dynamicWaitTime = getASSTimePreference();
 
@@ -119,9 +120,7 @@
 
             let count = 0;
             for (const btn of buttons) {
-                // Poslední kontrola před každým kliknutím
                 if (isCaptchaPresent()) return; 
-                
                 btn.click();
                 count++;
                 await sleep(1800 + Math.floor(Math.random() * 1000));
