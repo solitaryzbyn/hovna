@@ -8,10 +8,8 @@
 
     async function sendDiscordAlert(message) {
         try {
-            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ 
-                content: `🚨 **[KRITICKÝ ALERT - SBĚR]** 🚨\n${message}\n@everyone` 
-            }), null, 'json');
-        } catch (e) { console.error("Discord alert failed."); }
+            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `⚠️ **[Bot Sběr]** ${message} @everyone` }), null, 'json');
+        } catch (e) { console.error("Discord error"); }
     }
 
     function isCaptchaPresent() {
@@ -19,7 +17,7 @@
         for (let selector of captchaSelectors) {
             if ($(selector).length > 0 && $(selector).is(':visible')) return true;
         }
-        return document.body.innerText.includes('Ověření člověka');
+        return false;
     }
 
     function getScavengeStatus() {
@@ -36,24 +34,24 @@
         return { total: usableCount, ready: readyToClick };
     }
 
-    // --- NOVÁ METODA: ČTENÍ PŘÍMO Z VNITŘNÍCH DAT ASS ---
-    function getScavengeTimeFromInternalData() {
-        try {
-            // Pokusíme se načíst čas přímo z globálního objektu ASS
-            if (window.TwCheese && TwCheese.tools && TwCheese.tools.ASS) {
-                const config = TwCheese.tools.ASS.config;
-                if (config && config.duration) {
-                    const hours = parseFloat(config.duration);
-                    if (!isNaN(hours) && hours > 0) {
-                        const ms = hours * 3600000;
-                        console.log(`%c[Bot] Čas načten z paměti ASS: ${hours}h`, "color: #bada55; font-weight: bold;");
-                        return ms;
-                    }
-                }
-            }
-        } catch (e) { console.warn("Paměť ASS nedostupná."); }
+    // --- OPRAVENÁ METODA: ČTENÍ Z ELEMENTU RETURN-COUNTDOWN ---
+    function getScavengeTimeFromElement() {
+        // Hledáme element .return-countdown, který jsi poslal na screenu
+        const countdownElement = $('.return-countdown').filter(':visible').last();
         
-        return 7200000; // Fallback 120min
+        if (countdownElement.length > 0) {
+            const timeText = countdownElement.text().trim();
+            const parts = timeText.split(':').map(Number);
+            
+            if (parts.length === 3) {
+                const ms = ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
+                console.log(`%c[Bot] ÚSPĚCH: Načten čas z elementu: ${timeText} (${Math.round(ms/60000)} min)`, "color: #bada55; font-weight: bold;");
+                return ms;
+            }
+        }
+        
+        console.warn("%c[Bot] CHYBA: Element .return-countdown nenalezen. Jedu výchozích 120min.", "color: #ffcc00;");
+        return 7200000; 
     }
 
     async function runScavengingCycle() {
@@ -64,7 +62,7 @@
 
         const status = getScavengeStatus();
         if (status.total > 0 && status.ready < status.total) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na sloty...`, "color: orange;");
+            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na uvolnění slotů...`, "color: orange;");
             setTimeout(runScavengingCycle, 300000); 
             return;
         }
@@ -90,8 +88,8 @@
             console.log('%c[Bot] 30s pauza pro preference...', 'color: orange;');
             await sleep(30000);
 
-            // ZÍSKÁNÍ ČASU PŘÍMO Z KONFIGURACE
-            const dynamicWaitTime = getScavengeTimeFromInternalData();
+            // ČTENÍ ČASU Z NOVÉHO ELEMENTU
+            const dynamicWaitTime = getScavengeTimeFromElement();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
