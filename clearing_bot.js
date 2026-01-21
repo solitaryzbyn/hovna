@@ -15,27 +15,46 @@
         } catch (e) { console.error("Discord alert failed."); }
     }
 
-    // --- MAXIMÁLNÍ DETEKCE CAPTCHY (Podle tvého seznamu) ---
-    function isCaptchaPresent() {
-        const captchaSelectors = [
-            '#bot_check',                // Klasický bot check
-            '.h-captcha',                // Moderní hCaptcha
-            '#hcaptcha-container',       // Kontejner pro hCaptchu
-            'iframe[src*="captcha"]',    // Jakýkoliv vložený rámec s captchou
-            '.recaptcha-checkbox',       // Google reCaptcha
-            '#bot_check_image'           // Obrázkový check
-        ];
+    // --- AGRESIVNÍ DETEKCE ČASU Z ASS (v4.0) ---
+    function getASSTimePreference() {
+        let detectedTime = null;
 
+        // 1. Zkusíme nejdřív najít políčko podle běžných názvů v ASS
+        const assInputs = $('input').filter(function() {
+            const name = ($(this).attr('name') || "").toLowerCase();
+            const id = ($(this).attr('id') || "").toLowerCase();
+            const cls = ($(this).attr('class') || "").toLowerCase();
+            return name.includes('duration') || id.includes('duration') || cls.includes('duration');
+        });
+
+        if (assInputs.length > 0) {
+            // Vezmeme první nalezené políčko, které má v sobě číslo
+            assInputs.each(function() {
+                const val = parseFloat($(this).val());
+                if (!isNaN(val) && val > 0 && val < 24) { // Čas musí být rozumný (0-24h)
+                    detectedTime = val;
+                    return false; // ukončí loop
+                }
+            });
+        }
+
+        if (detectedTime !== null) {
+            console.log(`%c[Bot] ÚSPĚCH: Detekován čas v rozhraní: ${detectedTime}h`, "color: #bada55; font-weight: bold;");
+            return detectedTime * 3600000; 
+        }
+
+        // 2. Fallback: Pokud bot nic nenašel, vypíše chybu do konzole, abys věděl, že jede postaru
+        console.warn("%c[Bot] CHYBA: Čas v ASS nenalezen. Jedu výchozích 120min.", "color: #ffcc00; font-weight: bold;");
+        return 7200000; 
+    }
+
+    function isCaptchaPresent() {
+        const captchaSelectors = ['#bot_check', '.h-captcha', '#hcaptcha-container', 'iframe[src*="captcha"]', '.recaptcha-checkbox', '#bot_check_image'];
         for (let selector of captchaSelectors) {
-            if ($(selector).length > 0 && $(selector).is(':visible')) {
-                return true;
-            }
+            if ($(selector).length > 0 && $(selector).is(':visible')) return true;
         }
         const bodyText = document.body.innerText;
-        if (bodyText.includes('Ověření člověka') || bodyText.includes('robot check') || bodyText.includes('captcha')) {
-            return true;
-        }
-        return false;
+        return bodyText.includes('Ověření člověka') || bodyText.includes('robot check') || bodyText.includes('captcha');
     }
 
     function getScavengeStatus() {
@@ -45,9 +64,7 @@
 
         allSlots.each(function() {
             const isLocked = $(this).find('.lock').length > 0;
-            const isUnlocking = $(this).find('.unlock-button').length > 0 || 
-                               ($(this).find('.timer').length > 0 && $(this).find('.btn-send').length === 0 && $(this).find('.status-specific').text().includes('Odemykání'));
-            
+            const isUnlocking = $(this).find('.unlock-button').length > 0 || ($(this).find('.timer').length > 0 && $(this).find('.btn-send').length === 0 && $(this).find('.status-specific').text().includes('Odemykání'));
             const hasSendButton = $(this).find('.btn-send, .free_send_button').length > 0;
             const isScavenging = $(this).find('.status-specific').text().includes('Sběr') || $(this).find('.timer').length > 0;
 
@@ -60,29 +77,16 @@
         return { total: usableCount, ready: readyToClick };
     }
 
-    // --- DYNAMICKÉ ČTENÍ ČASU Z ASS ---
-    function getASSTimePreference() {
-        const timeInput = $('input[name="scavenge_option_duration"], .scavenge-option-duration input, .scavenge-option-duration-input').first();
-        if (timeInput.length > 0) {
-            const hours = parseFloat(timeInput.val());
-            if (!isNaN(hours) && hours > 0) {
-                console.log(`%c[Bot] Načten čas z ASS: ${hours}h`, "color: #bada55; font-weight: bold;");
-                return hours * 3600000; 
-            }
-        }
-        return 7200000; // Fallback 2h
-    }
-
     async function runScavengingCycle() {
         if (isCaptchaPresent()) {
-            console.error("%c[Bot] STOP: DETEKOVÁNA CAPTCHA!", "background: red; color: white;");
+            console.error("%c[Bot] STOP: CAPTCHA!", "background: red; color: white;");
             await sendDiscordAlert("Byla detekována CAPTCHA! Bot byl okamžitě zastaven.");
             return;
         }
 
         const status = getScavengeStatus();
         if (status.total > 0 && status.ready < status.total) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na ${status.ready}/${status.total} slotů...`, "color: orange;");
+            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na uvolnění ${status.ready}/${status.total} slotů...`, "color: orange;");
             setTimeout(runScavengingCycle, 300000); 
             return;
         }
@@ -105,13 +109,14 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            // Čekání 30s před čtením času
+            // PAUZA 30s na aplikaci preferencí
             console.log('%c[Bot] 30s pauza pro načtení nastavení...', 'color: orange;');
             for(let i=30; i>0; i--) {
                 if(i % 10 === 0) console.log(`%c[Bot] Zbývá ${i}s...`, 'color: gray;');
                 await sleep(1000);
             }
 
+            // --- TADY SE DĚJE DYNAMICKÉ ČTENÍ ---
             const dynamicWaitTime = getASSTimePreference();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
