@@ -15,39 +15,6 @@
         } catch (e) { console.error("Discord alert failed."); }
     }
 
-    // --- AGRESIVNÍ DETEKCE ČASU Z ASS (v4.0) ---
-    function getASSTimePreference() {
-        let detectedTime = null;
-
-        // 1. Zkusíme nejdřív najít políčko podle běžných názvů v ASS
-        const assInputs = $('input').filter(function() {
-            const name = ($(this).attr('name') || "").toLowerCase();
-            const id = ($(this).attr('id') || "").toLowerCase();
-            const cls = ($(this).attr('class') || "").toLowerCase();
-            return name.includes('duration') || id.includes('duration') || cls.includes('duration');
-        });
-
-        if (assInputs.length > 0) {
-            // Vezmeme první nalezené políčko, které má v sobě číslo
-            assInputs.each(function() {
-                const val = parseFloat($(this).val());
-                if (!isNaN(val) && val > 0 && val < 24) { // Čas musí být rozumný (0-24h)
-                    detectedTime = val;
-                    return false; // ukončí loop
-                }
-            });
-        }
-
-        if (detectedTime !== null) {
-            console.log(`%c[Bot] ÚSPĚCH: Detekován čas v rozhraní: ${detectedTime}h`, "color: #bada55; font-weight: bold;");
-            return detectedTime * 3600000; 
-        }
-
-        // 2. Fallback: Pokud bot nic nenašel, vypíše chybu do konzole, abys věděl, že jede postaru
-        console.warn("%c[Bot] CHYBA: Čas v ASS nenalezen. Jedu výchozích 120min.", "color: #ffcc00; font-weight: bold;");
-        return 7200000; 
-    }
-
     function isCaptchaPresent() {
         const captchaSelectors = ['#bot_check', '.h-captcha', '#hcaptcha-container', 'iframe[src*="captcha"]', '.recaptcha-checkbox', '#bot_check_image'];
         for (let selector of captchaSelectors) {
@@ -77,16 +44,31 @@
         return { total: usableCount, ready: readyToClick };
     }
 
+    // --- ČTENÍ ČASU PŘÍMO Z TEXTU U TLAČÍTKA ---
+    function getScavengeTimeFromUI() {
+        const timeElement = $('.scavenge-option').find('div:contains(":"), span:contains(":")').filter(function() {
+            return $(this).text().match(/\d{1,2}:\d{2}:\d{2}/);
+        }).first();
+
+        if (timeElement.length > 0) {
+            const timeText = timeElement.text().match(/\d{1,2}:\d{2}:\d{2}/)[0];
+            const parts = timeText.split(':').map(Number);
+            const ms = ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
+            console.log(`%c[Bot] Detekován čas z UI: ${timeText} (${Math.round(ms/60000)} min)`, "color: #bada55; font-weight: bold;");
+            return ms;
+        }
+        return 7200000; 
+    }
+
     async function runScavengingCycle() {
         if (isCaptchaPresent()) {
-            console.error("%c[Bot] STOP: CAPTCHA!", "background: red; color: white;");
-            await sendDiscordAlert("Byla detekována CAPTCHA! Bot byl okamžitě zastaven.");
+            await sendDiscordAlert("Byla detekována CAPTCHA!");
             return;
         }
 
         const status = getScavengeStatus();
         if (status.total > 0 && status.ready < status.total) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na uvolnění ${status.ready}/${status.total} slotů...`, "color: orange;");
+            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na sloty (${status.ready}/${status.total})...`, "color: orange;");
             setTimeout(runScavengingCycle, 300000); 
             return;
         }
@@ -109,15 +91,13 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            // PAUZA 30s na aplikaci preferencí
-            console.log('%c[Bot] 30s pauza pro načtení nastavení...', 'color: orange;');
+            console.log('%c[Bot] 30s pauza pro ASS preference...', 'color: orange;');
             for(let i=30; i>0; i--) {
                 if(i % 10 === 0) console.log(`%c[Bot] Zbývá ${i}s...`, 'color: gray;');
                 await sleep(1000);
             }
 
-            // --- TADY SE DĚJE DYNAMICKÉ ČTENÍ ---
-            const dynamicWaitTime = getASSTimePreference();
+            const dynamicWaitTime = getScavengeTimeFromUI();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
@@ -133,10 +113,7 @@
             
             const randomSpread = Math.floor(Math.random() * (528000 - 210000 + 1)) + 210000;
             const now = new Date();
-            let nightDelay = 0;
-            if (now.getHours() >= 1 && now.getHours() < 7) {
-                nightDelay = (Math.floor(Math.random() * (69 - 30 + 1)) + 30) * 60000;
-            }
+            let nightDelay = (now.getHours() >= 1 && now.getHours() < 7) ? (Math.floor(Math.random() * (69 - 30 + 1)) + 30) * 60000 : 0;
 
             const totalDelay = dynamicWaitTime + randomSpread + nightDelay;
             console.log(`%c[Bot] Hotovo. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
