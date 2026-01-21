@@ -44,19 +44,25 @@
         return { total: usableCount, ready: readyToClick };
     }
 
-    // --- ČTENÍ ČASU PŘÍMO Z TEXTU U TLAČÍTKA ---
-    function getScavengeTimeFromUI() {
-        const timeElement = $('.scavenge-option').find('div:contains(":"), span:contains(":")').filter(function() {
-            return $(this).text().match(/\d{1,2}:\d{2}:\d{2}/);
-        }).first();
+    // --- OPRAVENÉ ČTENÍ ČASU (V6.0) ---
+    function getScavengeTimeFromActiveButton() {
+        // Najdeme tlačítko, na které se bude klikat jako první (vpravo)
+        const activeButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
+        const firstBtn = activeButtons.last(); 
+        
+        if (firstBtn.length > 0) {
+            // Hledáme časový údaj přímo v textu tohoto tlačítka
+            const btnText = firstBtn.text();
+            const timeMatch = btnText.match(/(\d{1,2}):(\d{2}):(\d{2})/);
 
-        if (timeElement.length > 0) {
-            const timeText = timeElement.text().match(/\d{1,2}:\d{2}:\d{2}/)[0];
-            const parts = timeText.split(':').map(Number);
-            const ms = ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
-            console.log(`%c[Bot] Detekován čas z UI: ${timeText} (${Math.round(ms/60000)} min)`, "color: #bada55; font-weight: bold;");
-            return ms;
+            if (timeMatch) {
+                const ms = ((parseInt(timeMatch[1]) * 3600) + (parseInt(timeMatch[2]) * 60) + parseInt(timeMatch[3])) * 1000;
+                console.log(`%c[Bot] Detekován čas PŘÍMO NA TLAČÍTKU: ${timeMatch[0]} (${Math.round(ms/60000)} min)`, "color: #bada55; font-weight: bold;");
+                return ms;
+            }
         }
+        
+        console.warn("%c[Bot] Čas na tlačítku nenalezen, fallback na 120min.", "color: #ffcc00;");
         return 7200000; 
     }
 
@@ -91,13 +97,14 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            console.log('%c[Bot] 30s pauza pro ASS preference...', 'color: orange;');
+            console.log('%c[Bot] 30s pauza pro preference...', 'color: orange;');
             for(let i=30; i>0; i--) {
                 if(i % 10 === 0) console.log(`%c[Bot] Zbývá ${i}s...`, 'color: gray;');
                 await sleep(1000);
             }
 
-            const dynamicWaitTime = getScavengeTimeFromUI();
+            // Čtení času z konkrétního tlačítka před odesláním
+            const dynamicWaitTime = getScavengeTimeFromActiveButton();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
