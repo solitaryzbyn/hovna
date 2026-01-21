@@ -1,5 +1,4 @@
 (async function() {
-    // --- KONFIGURACE ---
     const TOOL_ID = 'ASS';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -20,61 +19,59 @@
         for (let selector of captchaSelectors) {
             if ($(selector).length > 0 && $(selector).is(':visible')) return true;
         }
-        const bodyText = document.body.innerText;
-        return bodyText.includes('Ověření člověka') || bodyText.includes('robot check') || bodyText.includes('captcha');
+        return document.body.innerText.includes('Ověření člověka');
     }
 
     function getScavengeStatus() {
         const allSlots = $('.scavenge-option');
-        let usableCount = 0;
-        let readyToClick = 0;
-
+        let usableCount = 0, readyToClick = 0;
         allSlots.each(function() {
             const isLocked = $(this).find('.lock').length > 0;
-            const isUnlocking = $(this).find('.unlock-button').length > 0 || ($(this).find('.timer').length > 0 && $(this).find('.btn-send').length === 0 && $(this).find('.status-specific').text().includes('Odemykání'));
-            const hasSendButton = $(this).find('.btn-send, .free_send_button').length > 0;
-            const isScavenging = $(this).find('.status-specific').text().includes('Sběr') || $(this).find('.timer').length > 0;
-
-            if (!isLocked && !isUnlocking && (hasSendButton || isScavenging)) {
+            const isUnlocking = $(this).find('.unlock-button').length > 0 || $(this).text().includes('Odemykání');
+            if (!isLocked && !isUnlocking) {
                 usableCount++; 
-                const btn = $(this).find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
-                if (btn.length > 0) readyToClick++;
+                if ($(this).find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').length > 0) readyToClick++;
             }
         });
         return { total: usableCount, ready: readyToClick };
     }
 
-    // --- OPRAVENÉ ČTENÍ ČASU (V6.0) ---
-    function getScavengeTimeFromActiveButton() {
-        // Najdeme tlačítko, na které se bude klikat jako první (vpravo)
-        const activeButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
-        const firstBtn = activeButtons.last(); 
-        
-        if (firstBtn.length > 0) {
-            // Hledáme časový údaj přímo v textu tohoto tlačítka
-            const btnText = firstBtn.text();
-            const timeMatch = btnText.match(/(\d{1,2}):(\d{2}):(\d{2})/);
-
-            if (timeMatch) {
-                const ms = ((parseInt(timeMatch[1]) * 3600) + (parseInt(timeMatch[2]) * 60) + parseInt(timeMatch[3])) * 1000;
-                console.log(`%c[Bot] Detekován čas PŘÍMO NA TLAČÍTKU: ${timeMatch[0]} (${Math.round(ms/60000)} min)`, "color: #bada55; font-weight: bold;");
-                return ms;
+    // --- NOVÁ METODA: ČTENÍ PŘÍMO Z PAMĚTI SKRIPTU ---
+    function getScavengeTimeFromInternalData() {
+        try {
+            // Pokusíme se vytáhnout nastavený čas přímo z objektu TwCheese ASS
+            if (window.TwCheese && TwCheese.tools && TwCheese.tools.ASS) {
+                const config = TwCheese.tools.ASS.config;
+                if (config && config.duration) {
+                    const hours = parseFloat(config.duration);
+                    if (!isNaN(hours) && hours > 0) {
+                        const ms = hours * 3600000;
+                        console.log(`%c[Bot] Čas načten z paměti ASS: ${hours}h (${Math.round(ms/60000)} min)`, "color: #bada55; font-weight: bold;");
+                        return ms;
+                    }
+                }
             }
-        }
+        } catch (e) { console.warn("Nepodařilo se přečíst paměť ASS."); }
         
-        console.warn("%c[Bot] Čas na tlačítku nenalezen, fallback na 120min.", "color: #ffcc00;");
-        return 7200000; 
+        // Pokud paměť selže, zkusíme najít první odpočet, který už ve hře běží (jako pojistku)
+        const runningTimer = $('.timer').first().text().trim();
+        if (runningTimer.match(/\d{1,2}:\d{2}:\d{2}/)) {
+             const parts = runningTimer.split(':').map(Number);
+             return ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
+        }
+
+        return 7200000; // Fallback 120min
     }
 
     async function runScavengingCycle() {
         if (isCaptchaPresent()) {
-            await sendDiscordAlert("Byla detekována CAPTCHA!");
+            await sendDiscordAlert("Detekována CAPTCHA!");
             return;
         }
 
         const status = getScavengeStatus();
         if (status.total > 0 && status.ready < status.total) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na sloty (${status.ready}/${status.total})...`, "color: orange;");
+            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na sloty...`, "color: orange;");
             setTimeout(runScavengingCycle, 300000); 
             return;
         }
@@ -98,23 +95,18 @@
             TwCheese.use(TOOL_ID);
 
             console.log('%c[Bot] 30s pauza pro preference...', 'color: orange;');
-            for(let i=30; i>0; i--) {
-                if(i % 10 === 0) console.log(`%c[Bot] Zbývá ${i}s...`, 'color: gray;');
-                await sleep(1000);
-            }
+            await sleep(30000);
 
-            // Čtení času z konkrétního tlačítka před odesláním
-            const dynamicWaitTime = getScavengeTimeFromActiveButton();
+            // ZÍSKÁNÍ ČASU Z VNITŘNÍCH DAT
+            const dynamicWaitTime = getScavengeTimeFromInternalData();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
                                .reverse();
 
-            let count = 0;
             for (const btn of buttons) {
                 if (isCaptchaPresent()) return; 
                 btn.click();
-                count++;
                 await sleep(1800 + Math.floor(Math.random() * 1000));
             }
             
