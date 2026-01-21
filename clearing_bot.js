@@ -36,30 +36,23 @@
         return { total: usableCount, ready: readyToClick };
     }
 
-    // --- NOVÁ METODA: ČTENÍ PŘÍMO Z PAMĚTI SKRIPTU ---
+    // --- NOVÁ METODA: ČTENÍ PŘÍMO Z VNITŘNÍCH DAT ASS ---
     function getScavengeTimeFromInternalData() {
         try {
-            // Pokusíme se vytáhnout nastavený čas přímo z objektu TwCheese ASS
+            // Pokusíme se načíst čas přímo z globálního objektu ASS
             if (window.TwCheese && TwCheese.tools && TwCheese.tools.ASS) {
                 const config = TwCheese.tools.ASS.config;
                 if (config && config.duration) {
                     const hours = parseFloat(config.duration);
                     if (!isNaN(hours) && hours > 0) {
                         const ms = hours * 3600000;
-                        console.log(`%c[Bot] Čas načten z paměti ASS: ${hours}h (${Math.round(ms/60000)} min)`, "color: #bada55; font-weight: bold;");
+                        console.log(`%c[Bot] Čas načten z paměti ASS: ${hours}h`, "color: #bada55; font-weight: bold;");
                         return ms;
                     }
                 }
             }
-        } catch (e) { console.warn("Nepodařilo se přečíst paměť ASS."); }
+        } catch (e) { console.warn("Paměť ASS nedostupná."); }
         
-        // Pokud paměť selže, zkusíme najít první odpočet, který už ve hře běží (jako pojistku)
-        const runningTimer = $('.timer').first().text().trim();
-        if (runningTimer.match(/\d{1,2}:\d{2}:\d{2}/)) {
-             const parts = runningTimer.split(':').map(Number);
-             return ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
-        }
-
         return 7200000; // Fallback 120min
     }
 
@@ -97,7 +90,7 @@
             console.log('%c[Bot] 30s pauza pro preference...', 'color: orange;');
             await sleep(30000);
 
-            // ZÍSKÁNÍ ČASU Z VNITŘNÍCH DAT
+            // ZÍSKÁNÍ ČASU PŘÍMO Z KONFIGURACE
             const dynamicWaitTime = getScavengeTimeFromInternalData();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
