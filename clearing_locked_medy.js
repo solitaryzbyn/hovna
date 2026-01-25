@@ -1,5 +1,4 @@
 (async function() {
-    // --- KONFIGURACE ---
     const TOOL_ID = 'ASS';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -7,86 +6,63 @@
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- FUNKCE PRO DISCORD ALERT ---
     async function sendDiscordAlert(message) {
         try {
-            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ 
-                content: `🚨 **[KRITICKÝ ALERT - SBĚR]** 🚨\n${message}\n@everyone` 
-            }), null, 'json');
-        } catch (e) { console.error("Discord alert failed."); }
+            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `⚠️ **[Bot Sběr]** ${message} @everyone` }), null, 'json');
+        } catch (e) { console.error("Discord error"); }
     }
 
-    // --- ZESÍLENÁ DETEKCE CAPTCHY (Podle tvých snímků) ---
     function isCaptchaPresent() {
-        const captchaSelectors = [
-            '#bot_check',                // Klasický bot check
-            '.h-captcha',                // Moderní hCaptcha
-            '#hcaptcha-container',       // Kontejner pro hCaptchu
-            'iframe[src*="captcha"]',    // Jakýkoliv vložený rámec s captchou
-            '.recaptcha-checkbox',       // Google reCaptcha
-            '#bot_check_image'           // Obrázkový check
-        ];
-
+        const captchaSelectors = ['#bot_check', '.h-captcha', '#hcaptcha-container', 'iframe[src*="captcha"]', '.recaptcha-checkbox', '#bot_check_image'];
         for (let selector of captchaSelectors) {
-            if ($(selector).length > 0 && $(selector).is(':visible')) {
-                return true;
-            }
+            if ($(selector).length > 0 && $(selector).is(':visible')) return true;
         }
-
-        // Kontrola specifických textů v chybových hláškách nebo oknech
-        const bodyText = document.body.innerText;
-        if (bodyText.includes('Ověření člověka') || bodyText.includes('robot check') || bodyText.includes('captcha')) {
-            return true;
-        }
-
         return false;
     }
 
     function getScavengeStatus() {
         const allSlots = $('.scavenge-option');
-        let usableCount = 0;
-        let readyToClick = 0;
-
+        let usableCount = 0, readyToClick = 0;
         allSlots.each(function() {
             const isLocked = $(this).find('.lock').length > 0;
-            const isUnlocking = $(this).find('.unlock-button').length > 0 || 
-                               ($(this).find('.timer').length > 0 && $(this).find('.btn-send').length === 0 && $(this).find('.status-specific').text().includes('Odemykání'));
-            
-            const hasSendButton = $(this).find('.btn-send, .free_send_button').length > 0;
-            const isScavenging = $(this).find('.status-specific').text().includes('Sběr') || $(this).find('.timer').length > 0;
-
-            if (!isLocked && !isUnlocking && (hasSendButton || isScavenging)) {
+            const isUnlocking = $(this).find('.unlock-button').length > 0 || $(this).text().includes('Odemykání');
+            if (!isLocked && !isUnlocking) {
                 usableCount++; 
-                const btn = $(this).find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
-                if (btn.length > 0) readyToClick++;
+                if ($(this).find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').length > 0) readyToClick++;
             }
         });
         return { total: usableCount, ready: readyToClick };
     }
 
-    function getASSTimePreference() {
-        const timeInput = $('input[name="scavenge_option_duration"], .scavenge-option-duration input, .scavenge-option-duration-input').first();
-        if (timeInput.length > 0) {
-            const hours = parseFloat(timeInput.val());
-            if (!isNaN(hours) && hours > 0) {
-                return hours * 3600000; 
+    //  METODA PRO ČTENÍ ČASU Z BĚŽÍCÍHO SBĚRU 
+    function getTimeAfterSent() {
+        // Hledáme odpočet u právě spuštěných sběrů
+        const countdownElement = $('.return-countdown, .timer').filter(':visible').first();
+        
+        if (countdownElement.length > 0) {
+            const timeText = countdownElement.text().trim();
+            const parts = timeText.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+            
+            if (parts) {
+                const ms = ((parseInt(parts[1]) * 3600) + (parseInt(parts[2]) * 60) + parseInt(parts[3])) * 1000;
+                console.log(`%c[Bot] ÚSPĚCH: Po odeslání detekován čas: ${parts[0]}`, "color: #bada55; font-weight: bold;");
+                return ms;
             }
         }
+        console.warn("%c[Bot] Nepodařilo se přečíst čas po odeslání, fallback 120min.", "color: #ffcc00;");
         return 7200000; 
     }
 
     async function runScavengingCycle() {
-        // --- PROTI-BOT OCHRANA ---
         if (isCaptchaPresent()) {
-            console.error("%c[Bot] STOP: DETEKOVÁNA CAPTCHA!", "background: red; color: white; font-size: 20px;");
-            await sendDiscordAlert("Byla detekována CAPTCHA! Bot byl okamžitě zastaven, aby se zabránilo banu. Vyřeš ověření a znovu aktivuj skript.");
-            return; // Úplné ukončení skriptu, žádný další setTimeout
+            await sendDiscordAlert("Detekována CAPTCHA!");
+            return;
         }
 
         const status = getScavengeStatus();
         if (status.total > 0 && status.ready < status.total) {
-            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na ${status.ready}/${status.total} slotů...`, "color: orange;");
-            setTimeout(runScavengingCycle, 300000); 
+            console.log(`%c[Bot] SYNCHRONIZACE: Čekám na uvolnění slotů...`, "color: orange;");
+            setTimeout(runScavengingCycle, 180000); // Kontrola každých 3 mim
             return;
         }
 
@@ -108,39 +84,35 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            console.log('%c[Bot] 30s pauza pro preference...', 'color: orange;');
+            console.log('%c[Bot] 30s pauza pro ASS...', 'color: orange;');
             await sleep(30000);
-
-            const dynamicWaitTime = getASSTimePreference();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
-                               .reverse();
+                               .reverse(); // Zprava doleva
 
-            let count = 0;
+            // 1. NEJDŘÍVE VŠE ODEŠLEME
             for (const btn of buttons) {
-                // Poslední kontrola před každým kliknutím
                 if (isCaptchaPresent()) return; 
-                
                 btn.click();
-                count++;
                 await sleep(1800 + Math.floor(Math.random() * 1000));
             }
+
+            // 2. TEPRVE TEĎ ZJISTÍME ČAS Z BĚŽÍCÍHO SBĚRU
+            await sleep(2000); // Krátká pauza na protažení DOMu
+            const dynamicWaitTime = getTimeAfterSent();
             
             const randomSpread = Math.floor(Math.random() * (528000 - 210000 + 1)) + 210000;
             const now = new Date();
-            let nightDelay = 0;
-            if (now.getHours() >= 1 && now.getHours() < 7) {
-                nightDelay = (Math.floor(Math.random() * (69 - 30 + 1)) + 30) * 60000;
-            }
+            let nightDelay = (now.getHours() >= 1 && now.getHours() < 7) ? (Math.floor(Math.random() * (69 - 30 + 1)) + 30) * 60000 : 0;
 
             const totalDelay = dynamicWaitTime + randomSpread + nightDelay;
-            console.log(`%c[Bot] Hotovo. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
+            console.log(`%c[Bot] Hotovo. Další cyklus v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
             
             setTimeout(runScavengingCycle, totalDelay);
         } catch (err) {
             console.error("[Bot] Chyba:", err.message);
-            setTimeout(runScavengingCycle, 300000);
+            setTimeout(runScavengingCycle, 180000);
         }
     }
 
