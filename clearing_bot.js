@@ -34,23 +34,22 @@
         return { total: usableCount, ready: readyToClick };
     }
 
-    // --- OPRAVENÁ METODA: ČTENÍ Z ELEMENTU RETURN-COUNTDOWN ---
-    function getScavengeTimeFromElement() {
-        // Hledáme element .return-countdown, který jsi poslal na screenu
-        const countdownElement = $('.return-countdown').filter(':visible').last();
+    // --- METODA PRO ČTENÍ ČASU Z BĚŽÍCÍHO SBĚRU ---
+    function getTimeAfterSent() {
+        // Hledáme odpočet u právě spuštěných sběrů
+        const countdownElement = $('.return-countdown, .timer').filter(':visible').first();
         
         if (countdownElement.length > 0) {
             const timeText = countdownElement.text().trim();
-            const parts = timeText.split(':').map(Number);
+            const parts = timeText.match(/(\d{1,2}):(\d{2}):(\d{2})/);
             
-            if (parts.length === 3) {
-                const ms = ((parts[0] * 3600) + (parts[1] * 60) + parts[2]) * 1000;
-                console.log(`%c[Bot] ÚSPĚCH: Načten čas z elementu: ${timeText} (${Math.round(ms/60000)} min)`, "color: #bada55; font-weight: bold;");
+            if (parts) {
+                const ms = ((parseInt(parts[1]) * 3600) + (parseInt(parts[2]) * 60) + parseInt(parts[3])) * 1000;
+                console.log(`%c[Bot] ÚSPĚCH: Po odeslání detekován čas: ${parts[0]}`, "color: #bada55; font-weight: bold;");
                 return ms;
             }
         }
-        
-        console.warn("%c[Bot] CHYBA: Element .return-countdown nenalezen. Jedu výchozích 120min.", "color: #ffcc00;");
+        console.warn("%c[Bot] Nepodařilo se přečíst čas po odeslání, fallback 120min.", "color: #ffcc00;");
         return 7200000; 
     }
 
@@ -63,7 +62,7 @@
         const status = getScavengeStatus();
         if (status.total > 0 && status.ready < status.total) {
             console.log(`%c[Bot] SYNCHRONIZACE: Čekám na uvolnění slotů...`, "color: orange;");
-            setTimeout(runScavengingCycle, 300000); 
+            setTimeout(runScavengingCycle, 180000); // Kontrola každé 3 minuty
             return;
         }
 
@@ -85,33 +84,35 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
 
-            console.log('%c[Bot] 30s pauza pro preference...', 'color: orange;');
+            console.log('%c[Bot] 30s pauza pro ASS...', 'color: orange;');
             await sleep(30000);
-
-            // ČTENÍ ČASU Z NOVÉHO ELEMENTU
-            const dynamicWaitTime = getScavengeTimeFromElement();
 
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
-                               .reverse();
+                               .reverse(); // Zprava doleva
 
+            // 1. NEJDŘÍVE VŠE ODEŠLEME
             for (const btn of buttons) {
                 if (isCaptchaPresent()) return; 
                 btn.click();
                 await sleep(1800 + Math.floor(Math.random() * 1000));
             }
+
+            // 2. TEPRVE TEĎ ZJISTÍME ČAS Z BĚŽÍCÍHO SBĚRU
+            await sleep(2000); // Krátká pauza na protažení DOMu
+            const dynamicWaitTime = getTimeAfterSent();
             
             const randomSpread = Math.floor(Math.random() * (528000 - 210000 + 1)) + 210000;
             const now = new Date();
             let nightDelay = (now.getHours() >= 1 && now.getHours() < 7) ? (Math.floor(Math.random() * (69 - 30 + 1)) + 30) * 60000 : 0;
 
             const totalDelay = dynamicWaitTime + randomSpread + nightDelay;
-            console.log(`%c[Bot] Hotovo. Další v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
+            console.log(`%c[Bot] Hotovo. Další cyklus v: ${getEuroTime(new Date(Date.now() + totalDelay))}`, "color: cyan; font-weight: bold;");
             
             setTimeout(runScavengingCycle, totalDelay);
         } catch (err) {
             console.error("[Bot] Chyba:", err.message);
-            setTimeout(runScavengingCycle, 300000);
+            setTimeout(runScavengingCycle, 180000);
         }
     }
 
