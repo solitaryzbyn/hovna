@@ -15,19 +15,29 @@
     let stop = localStorage.stop === "false" ? false : true; 
     
     let isProcessing = false;
+    let vUnits = {}; // Virtuální počítadlo jednotek
 
-    // Funkce pro čtení jednotek ze šablon
-    const getTemplateUnit = (rowIdx, unitName) => {
-        const input = document.querySelector(`#content_value table.vis:nth-of-type(1) tr:nth-of-type(${rowIdx+1}) input[name="${unitName}"]`);
-        return input ? parseInt(input.value) : 0;
+    const getTemplate = (id) => {
+        const row = document.querySelector(`#content_value table.vis:nth-of-type(1) tr:nth-of-type(${id+1})`);
+        if (!row) return null;
+        return {
+            spear: parseInt(row.querySelector('input[name="spear"]')?.value) || 0,
+            sword: parseInt(row.querySelector('input[name="sword"]')?.value) || 0,
+            axe: parseInt(row.querySelector('input[name="axe"]')?.value) || 0,
+            spy: parseInt(row.querySelector('input[name="spy"]')?.value) || 0,
+            light: parseInt(row.querySelector('input[name="light"]')?.value) || 0,
+            heavy: parseInt(row.querySelector('input[name="heavy"]')?.value) || 0,
+            archer: parseInt(row.querySelector('input[name="archer"]')?.value) || 0,
+            marcher: parseInt(row.querySelector('input[name="marcher"]')?.value) || 0,
+            knight: parseInt(row.querySelector('input[name="knight"]')?.value) || 0
+        };
     };
 
-    // UI Panel
     const panel = document.createElement("div");
     panel.id = "farm-bot-panel";
     panel.style = "background: #e3d5b8; border: 2px solid #7d510f; padding: 10px; margin: 10px 0; font-family: Verdana,Arial,sans-serif;";
     panel.innerHTML = `
-        <h3 style="margin-top:0">Farm Bot v0.91</h3>
+        <h3 style="margin-top:0">Farm Bot v0.92</h3>
         <p>Max. vzdálenost A: <input id='distInputA' value='${maxDistanceA}' style='width:35px'> <button id='btnA' class='btn'>Uložit</button></p>
         <p>Max. vzdálenost B: <input id='distInputB' value='${maxDistanceB}' style='width:35px'> <button id='btnB' class='btn'>Uložit</button></p>
         <p>Max. vzdálenost C: <input id='distInputC' value='${maxDistanceC}' style='width:35px'> <button id='btnC' class='btn'>Uložit</button></p>
@@ -49,24 +59,27 @@
         btn.style.color = "white";
     };
 
-    // Funkce pro real-time kontrolu jednotek přímo z DOMu hry
-    const getLiveUnits = () => ({
-        spear: parseInt(document.getElementById("spear")?.innerText) || 0,
-        sword: parseInt(document.getElementById("sword")?.innerText) || 0,
-        axe: parseInt(document.getElementById("axe")?.innerText) || 0,
-        spy: parseInt(document.getElementById("spy")?.innerText) || 0,
-        light: parseInt(document.getElementById("light")?.innerText) || 0,
-        heavy: parseInt(document.getElementById("heavy")?.innerText) || 0
-    });
+    const loadLiveUnits = () => {
+        vUnits = {
+            spear: parseInt(document.getElementById("spear")?.innerText) || 0,
+            sword: parseInt(document.getElementById("sword")?.innerText) || 0,
+            axe: parseInt(document.getElementById("axe")?.innerText) || 0,
+            archer: parseInt(document.getElementById("archer")?.innerText) || 0,
+            spy: parseInt(document.getElementById("spy")?.innerText) || 0,
+            light: parseInt(document.getElementById("light")?.innerText) || 0,
+            marcher: parseInt(document.getElementById("marcher")?.innerText) || 0,
+            heavy: parseInt(document.getElementById("heavy")?.innerText) || 0,
+            knight: parseInt(document.getElementById("knight")?.innerText) || 0
+        };
+        console.log("[Bot] Jednotky načteny:", vUnits);
+    };
 
     const triggerSwitch = () => {
         if (switchSpeed > 0 && !stop) {
-            console.log(`%c[Bot] Končím v této vsi. Přepínám za ${switchSpeed}s...`, "color: blue");
+            console.log(`%c[Bot] Hotovo. Přepínám za ${switchSpeed}s...`, "color: blue");
             setTimeout(() => {
-                if (!stop) {
-                    const next = document.querySelector('.arrowRight') || document.querySelector('.groupRight');
-                    if (next) next.click(); else window.location.reload();
-                }
+                const next = document.querySelector('.arrowRight') || document.querySelector('.groupRight');
+                if (next) next.click(); else window.location.reload();
             }, switchSpeed * 1000);
         }
     };
@@ -74,91 +87,73 @@
     const startFarming = () => {
         if (stop || isProcessing) return;
         isProcessing = true;
+        loadLiveUnits();
         
-        const templA = { spear: getTemplateUnit(1, "spear"), sword: getTemplateUnit(1, "sword"), axe: getTemplateUnit(1, "axe"), spy: getTemplateUnit(1, "spy"), light: getTemplateUnit(1, "light"), heavy: getTemplateUnit(1, "heavy") };
-        const templB = { spear: getTemplateUnit(2, "spear"), sword: getTemplateUnit(2, "sword"), axe: getTemplateUnit(2, "axe"), spy: getTemplateUnit(2, "spy"), light: getTemplateUnit(2, "light"), heavy: getTemplateUnit(2, "heavy") };
-
+        const templA = getTemplate(1);
+        const templB = getTemplate(2);
         const rows = Array.from(document.querySelectorAll("#plunder_list tbody tr[id^='village_']"));
-        let counter = 0;
-        let lastActionTime = 0;
 
-        // Pomocná funkce pro postupné odesílání
-        const processRow = (index) => {
-            if (stop || index >= rows.length) {
-                setTimeout(triggerSwitch, 500);
+        const processRow = (idx) => {
+            if (stop || idx >= rows.length) {
+                triggerSwitch();
                 isProcessing = false;
                 return;
             }
 
-            const row = rows[index];
-            const liveUnits = getLiveUnits();
-            
-            // Kontrola opevnění
-            const wallCell = row.cells[6];
-            if (wallCell) {
-                const wallText = wallCell.innerText.trim();
-                const wallLevel = wallText === "?" ? 0 : (parseInt(wallText) || 0);
-                if (wallText !== "?" && wallLevel > wallLimit) return processRow(index + 1);
-            }
-
-            let selectedTemplate = "";
-            let currentMaxDist = 0;
-
-            const canSend = (t) => Object.keys(t).every(u => liveUnits[u] >= t[u]);
-
-            if (canSend(templA) && maxDistanceA > 0) {
-                selectedTemplate = "a";
-                currentMaxDist = maxDistanceA;
-            } else if (canSend(templB) && maxDistanceB > 0) {
-                selectedTemplate = "b";
-                currentMaxDist = maxDistanceB;
-            } else if (maxDistanceC > 0 && (liveUnits.light > 0 || liveUnits.heavy > 0 || liveUnits.axe > 0 || liveUnits.spy > 0)) { 
-                selectedTemplate = "c";
-                currentMaxDist = maxDistanceC;
-            }
-
+            const row = rows[idx];
             const dist = parseFloat(row.cells[7]?.innerText) || 999;
-            const alreadyAttacking = row.querySelector('img.tooltip[src*="attack.png"]') || row.querySelector('img[src*="command/attack.png"]');
+            const wall = row.cells[6]?.innerText.trim();
+            const wallLvl = wall === "?" ? 0 : (parseInt(wall) || 0);
 
-            if (selectedTemplate && dist <= currentMaxDist && !alreadyAttacking) {
-                const btn = row.querySelector(`.farm_icon_${selectedTemplate}`);
-                if (btn && !btn.classList.contains('disabled')) {
-                    counter++;
-                    let wait = Math.floor(Math.random() * (550 - 450 + 1) + 450);
-                    
-                    setTimeout(() => {
-                        if (!stop) {
-                            btn.click();
-                            console.log(`%c[Bot] Útok odeslán (${selectedTemplate.toUpperCase()}) | Vzdálenost: ${dist}`, "color: green");
-                            processRow(index + 1); // Jdeme na další řádek až po kliknutí
-                        }
-                    }, wait);
+            // Kontrola zdi
+            if (wall !== "?" && wallLvl > wallLimit) return processRow(idx + 1);
+
+            let type = "";
+            let cost = null;
+            let maxD = 0;
+
+            const canFit = (t) => Object.keys(t).every(u => vUnits[u] >= t[u]);
+
+            if (canFit(templA) && maxDistanceA > 0 && dist <= maxDistanceA) {
+                type = "a"; cost = templA; maxD = maxDistanceA;
+            } else if (canFit(templB) && maxDistanceB > 0 && dist <= maxDistanceB) {
+                type = "b"; cost = templB; maxD = maxDistanceB;
+            } else if (maxDistanceC > 0 && dist <= maxDistanceC && (vUnits.light > 0 || vUnits.heavy > 0 || vUnits.axe > 0)) {
+                type = "c"; cost = null; maxD = maxDistanceC;
+            }
+
+            const btn = row.querySelector(`.farm_icon_${type}`);
+            const isAttacking = row.querySelector('img.tooltip[src*="attack.png"]');
+
+            if (type && btn && !btn.classList.contains('disabled') && !isAttacking) {
+                let wait = Math.floor(Math.random() * 100 + 450);
+                setTimeout(() => {
+                    if (!stop) {
+                        btn.click();
+                        if (cost) Object.keys(cost).forEach(u => vUnits[u] -= cost[u]);
+                        console.log(`%c[Bot] Útok ${type.toUpperCase()} odeslán (${dist} polí)`, "color: green");
+                        processRow(idx + 1);
+                    }
+                }, wait);
+            } else {
+                if (!type && idx < 5) { // Pokud hned na začátku nemáme jednotky ani na A/B/C
+                    console.log("%c[Bot] Nedostatek jednotek pro další útoky.", "color: orange");
+                    triggerSwitch();
+                    isProcessing = false;
                     return;
                 }
+                processRow(idx + 1);
             }
-            // Pokud řádek nevyhovuje, jdeme hned na další
-            processRow(index + 1);
         };
-
         processRow(0);
     };
 
     document.getElementById("start-stop").onclick = () => {
-        stop = !stop;
-        localStorage.stop = stop;
-        updateUI();
-        if (!stop) {
-            console.log("%c[Bot] Spuštěno", "color: blue");
-            startFarming();
-        }
+        stop = !stop; localStorage.stop = stop; updateUI();
+        if (!stop) startFarming();
     };
 
-    const save = (id, key) => {
-        let val = parseInt(document.getElementById(id).value);
-        localStorage.setItem(key, val);
-        console.log(`[Bot] ${key} uloženo: ${val}`);
-    };
-
+    const save = (id, key) => { localStorage.setItem(key, parseInt(document.getElementById(id).value)); console.log(`[Bot] Uloženo: ${key}`); };
     document.getElementById("btnA").onclick = () => save("distInputA", "maxDistanceA");
     document.getElementById("btnB").onclick = () => save("distInputB", "maxDistanceB");
     document.getElementById("btnC").onclick = () => save("distInputC", "maxDistanceC");
