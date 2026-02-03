@@ -18,6 +18,7 @@
     let maxDistanceC = parseInt(localStorage.maxDistanceC) || 0;
     let switchSpeed = parseInt(localStorage.switchSpeed) || 0;
     let speed = parseInt(localStorage.speed) || 500;
+    let wallLimit = parseInt(localStorage.wallLimit) || 0; // Nový limit opevnění
     let stop = localStorage.stop === "false" ? false : true; 
     
     let isProcessing = false;
@@ -33,10 +34,11 @@
     panel.id = "farm-bot-panel";
     panel.style = "background: #e3d5b8; border: 2px solid #7d510f; padding: 10px; margin: 10px 0; font-family: Verdana,Arial,sans-serif;";
     panel.innerHTML = `
-        <h3 style="margin-top:0">Farm Bot v0.6</h3>
+        <h3 style="margin-top:0">Farm Bot v0.7</h3>
         <p>Max. vzdálenost A: <input id='distInputA' value='${maxDistanceA}' style='width:35px'> <button id='btnA' class='btn'>Uložit</button></p>
         <p>Max. vzdálenost B: <input id='distInputB' value='${maxDistanceB}' style='width:35px'> <button id='btnB' class='btn'>Uložit</button></p>
         <p>Max. vzdálenost C: <input id='distInputC' value='${maxDistanceC}' style='width:35px'> <button id='btnC' class='btn'>Uložit</button></p>
+        <p>Limit opevnění (max): <input id='wallInput' value='${wallLimit}' style='width:35px'> <button id='btnWall' class='btn'>Uložit</button></p>
         <p>Přepnout vesnici (s): <input id='swSpd' value='${switchSpeed}' style='width:40px'> <button id='btnSw' class='btn'>Uložit</button></p>
         <p>Prodleva útoků (ms): <input id='atkSpd' value='${speed}' style='width:40px'> <button id='btnSpd' class='btn'>Uložit</button></p>
         <div style="margin-top:10px; border-top:1px solid #7d510f; padding-top:10px;">
@@ -77,6 +79,19 @@
 
         rows.forEach((row) => {
             if (stop) return;
+
+            // Kontrola opevnění
+            const wallCell = row.cells[6];
+            if (wallCell) {
+                const wallText = wallCell.innerText.trim();
+                const wallLevel = wallText === "?" ? 0 : (parseInt(wallText) || 0);
+                
+                // Pokud je známé opevnění vyšší než limit, přeskočíme
+                if (wallText !== "?" && wallLevel > wallLimit) {
+                    console.log(`%c[Bot] Přeskakuji vesnici kvůli opevnění (LVL ${wallLevel})`, "color: #999");
+                    return;
+                }
+            }
 
             let selectedTemplate = "";
             let currentMaxDist = 0;
@@ -124,20 +139,12 @@
             }
         });
 
-        // Přepnutí vesnice až po dokončení všech útoků (+ malá rezerva)
         if (switchSpeed > 0 && !stop) {
             let finalDelay = totalWait + (switchSpeed * 1000);
-            console.log(`%c[Bot] Dokončeno. Další vesnice za ${(finalDelay/1000).toFixed(1)}s`, "color: blue");
-            
             setTimeout(() => {
                 if (!stop) {
                     const next = document.querySelector('.arrowRight') || document.querySelector('.groupRight');
-                    if (next) {
-                        console.log("%c[Bot] Přepínám...", "color: blue");
-                        next.click();
-                    } else {
-                        window.location.reload();
-                    }
+                    if (next) next.click(); else window.location.reload();
                 }
             }, finalDelay);
         }
@@ -150,15 +157,13 @@
         stop = !stop;
         localStorage.stop = stop;
         updateUI();
-        if (!stop) {
-            console.log("%c[Bot] Spuštěno", "color: blue");
-            startFarming();
-        }
+        if (!stop) startFarming();
     };
 
-    document.getElementById("btnA").onclick = () => { maxDistanceA = parseInt(document.getElementById("distInputA").value); localStorage.maxDistanceA = maxDistanceA; console.log("Uložena vzdálenost A"); };
-    document.getElementById("btnB").onclick = () => { maxDistanceB = parseInt(document.getElementById("distInputB").value); localStorage.maxDistanceB = maxDistanceB; console.log("Uložena vzdálenost B"); };
-    document.getElementById("btnC").onclick = () => { maxDistanceC = parseInt(document.getElementById("distInputC").value); localStorage.maxDistanceC = maxDistanceC; console.log("Uložena vzdálenost C"); };
+    document.getElementById("btnA").onclick = () => { maxDistanceA = parseInt(document.getElementById("distInputA").value); localStorage.maxDistanceA = maxDistanceA; console.log("Uloženo A"); };
+    document.getElementById("btnB").onclick = () => { maxDistanceB = parseInt(document.getElementById("distInputB").value); localStorage.maxDistanceB = maxDistanceB; console.log("Uloženo B"); };
+    document.getElementById("btnC").onclick = () => { maxDistanceC = parseInt(document.getElementById("distInputC").value); localStorage.maxDistanceC = maxDistanceC; console.log("Uloženo C"); };
+    document.getElementById("btnWall").onclick = () => { wallLimit = parseInt(document.getElementById("wallInput").value); localStorage.wallLimit = wallLimit; console.log("Uložen limit opevnění: " + wallLimit); };
     document.getElementById("btnSpd").onclick = () => { speed = parseInt(document.getElementById("atkSpd").value); localStorage.speed = speed; console.log("Uložena rychlost"); };
     document.getElementById("btnSw").onclick = () => { switchSpeed = parseInt(document.getElementById("swSpd").value); localStorage.switchSpeed = switchSpeed; console.log("Uloženo přepínání"); };
 
