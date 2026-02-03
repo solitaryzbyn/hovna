@@ -21,9 +21,9 @@
     let stop = localStorage.stop === "false" ? false : true; 
     
     let activeMaxDistance = 0;
-    let currentTemplate = ""; // "a", "b" nebo "c"
+    let currentTemplate = "";
 
-    // Bezpečné čtení hodnot jednotek z šablon (vstupy uživatele)
+    // Bezpečné čtení hodnot jednotek z šablon
     const getTemplateUnit = (rowIdx, unitName) => {
         const input = document.querySelector(`#content_value table.vis:nth-of-type(1) tr:nth-of-type(${rowIdx+1}) input[name="${unitName}"]`);
         return input ? parseInt(input.value) : 0;
@@ -34,7 +34,7 @@
     panel.id = "farm-bot-panel";
     panel.style = "background: #e3d5b8; border: 2px solid #7d510f; padding: 10px; margin: 10px 0; font-family: Verdana,Arial,sans-serif;";
     panel.innerHTML = `
-        <h3 style="margin-top:0">Farm Bot v0.4</h3>
+        <h3 style="margin-top:0">Farm Bot v0.5</h3>
         <p>Max. vzdálenost A: <input id='distInputA' value='${maxDistanceA}' style='width:35px'> <button id='btnA' class='btn'>Uložit</button></p>
         <p>Max. vzdálenost B: <input id='distInputB' value='${maxDistanceB}' style='width:35px'> <button id='btnB' class='btn'>Uložit</button></p>
         <p>Max. vzdálenost C: <input id='distInputC' value='${maxDistanceC}' style='width:35px'> <button id='btnC' class='btn'>Uložit</button></p>
@@ -64,50 +64,69 @@
         heavy: parseInt(document.getElementById("heavy")?.innerText) || 0
     });
 
-    const checkStrategy = () => {
-        const units = getAvailableUnits();
+    const startFarming = () => {
+        if (stop) return;
+        
+        let units = getAvailableUnits();
         const templA = { spear: getTemplateUnit(1, "spear"), sword: getTemplateUnit(1, "sword"), axe: getTemplateUnit(1, "axe"), spy: getTemplateUnit(1, "spy"), light: getTemplateUnit(1, "light"), heavy: getTemplateUnit(1, "heavy") };
         const templB = { spear: getTemplateUnit(2, "spear"), sword: getTemplateUnit(2, "sword"), axe: getTemplateUnit(2, "axe"), spy: getTemplateUnit(2, "spy"), light: getTemplateUnit(2, "light"), heavy: getTemplateUnit(2, "heavy") };
 
-        const canSend = (t) => Object.keys(t).every(u => units[u] >= t[u]);
-
-        if (canSend(templA) && maxDistanceA > 0) {
-            currentTemplate = "a";
-            activeMaxDistance = maxDistanceA;
-        } else if (canSend(templB) && maxDistanceB > 0) {
-            currentTemplate = "b";
-            activeMaxDistance = maxDistanceB;
-        } else {
-            currentTemplate = "c";
-            activeMaxDistance = maxDistanceC;
-        }
-    };
-
-    const startFarming = () => {
-        if (stop) return;
-        checkStrategy();
-        
         const rows = document.querySelectorAll("#plunder_list tbody tr[id^='village_']");
         let counter = 0;
 
         rows.forEach((row) => {
+            if (stop) return;
+
+            // Dynamický výběr šablony pro každý řádek podle zbývajících jednotek
+            let selectedTemplate = "";
+            let currentMaxDist = 0;
+            let currentCost = null;
+
+            const canSend = (t) => Object.keys(t).every(u => units[u] >= t[u]);
+
+            if (canSend(templA) && maxDistanceA > 0) {
+                selectedTemplate = "a";
+                currentMaxDist = maxDistanceA;
+                currentCost = templA;
+            } else if (canSend(templB) && maxDistanceB > 0) {
+                selectedTemplate = "b";
+                currentMaxDist = maxDistanceB;
+                currentCost = templB;
+            } else if (maxDistanceC > 0) {
+                selectedTemplate = "c";
+                currentMaxDist = maxDistanceC;
+                currentCost = null; // C šablona je variabilní, bot ji pošle, i když nezná přesný počet (hra si to ohlídá)
+            }
+
+            if (!selectedTemplate) return;
+
             const dist = parseFloat(row.cells[7]?.innerText) || 999;
             const alreadyAttacking = row.querySelector('img.tooltip[src*="attack.png"]') || row.querySelector('img[src*="command/attack.png"]');
 
-            if (dist <= activeMaxDistance && !alreadyAttacking) {
-                const btn = row.querySelector(`.farm_icon_${currentTemplate}`);
+            if (dist <= currentMaxDist && !alreadyAttacking) {
+                const btn = row.querySelector(`.farm_icon_${selectedTemplate}`);
                 if (btn && !btn.classList.contains('disabled')) {
                     counter++;
+                    
+                    // Virtuální odečtení jednotek pro další řádky
+                    if (currentCost) {
+                        Object.keys(currentCost).forEach(u => units[u] -= currentCost[u]);
+                    }
+
                     let wait = (speed * counter) - Math.floor(Math.random() * 100 + 450);
                     setTimeout(() => {
                         if (!stop) {
                             btn.click();
-                            console.log(`%c[Bot] Útok odeslán šablonou ${currentTemplate.toUpperCase()} na vzdálenost ${dist}`, "color: green");
+                            console.log(`%c[Bot] Útok odeslán (${selectedTemplate.toUpperCase()}) | Vzdálenost: ${dist}`, "color: green");
                         }
                     }, wait);
                 }
             }
         });
+
+        if (counter === 0) {
+            console.log("%c[Bot] Žádné další útoky k odeslání v této vsi.", "color: orange");
+        }
     };
 
     // Handlery
@@ -121,20 +140,26 @@
         }
     };
 
-    document.getElementById("btnA").onclick = () => { maxDistanceA = parseInt(document.getElementById("distInputA").value); localStorage.maxDistanceA = maxDistanceA; alert("Uloženo A"); };
-    document.getElementById("btnB").onclick = () => { maxDistanceB = parseInt(document.getElementById("distInputB").value); localStorage.maxDistanceB = maxDistanceB; alert("Uloženo B"); };
-    document.getElementById("btnC").onclick = () => { maxDistanceC = parseInt(document.getElementById("distInputC").value); localStorage.maxDistanceC = maxDistanceC; alert("Uloženo C"); };
-    document.getElementById("btnSpd").onclick = () => { speed = parseInt(document.getElementById("atkSpd").value); localStorage.speed = speed; alert("Rychlost uložena"); };
-    document.getElementById("btnSw").onclick = () => { switchSpeed = parseInt(document.getElementById("swSpd").value); localStorage.switchSpeed = switchSpeed; alert("Přepínání uloženo"); };
+    document.getElementById("btnA").onclick = () => { maxDistanceA = parseInt(document.getElementById("distInputA").value); localStorage.maxDistanceA = maxDistanceA; console.log("Uložena vzdálenost A"); };
+    document.getElementById("btnB").onclick = () => { maxDistanceB = parseInt(document.getElementById("distInputB").value); localStorage.maxDistanceB = maxDistanceB; console.log("Uložena vzdálenost B"); };
+    document.getElementById("btnC").onclick = () => { maxDistanceC = parseInt(document.getElementById("distInputC").value); localStorage.maxDistanceC = maxDistanceC; console.log("Uložena vzdálenost C"); };
+    document.getElementById("btnSpd").onclick = () => { speed = parseInt(document.getElementById("atkSpd").value); localStorage.speed = speed; console.log("Uložena rychlost"); };
+    document.getElementById("btnSw").onclick = () => { switchSpeed = parseInt(document.getElementById("swSpd").value); localStorage.switchSpeed = switchSpeed; console.log("Uloženo přepínání"); };
 
     updateUI();
     if (!stop) setTimeout(startFarming, 1000);
 
+    // Automatické přepínání
     if (switchSpeed > 0) {
         setTimeout(() => {
             if (!stop) {
                 const next = document.querySelector('.arrowRight') || document.querySelector('.groupRight');
-                if (next) next.click(); else window.location.reload();
+                if (next) {
+                    console.log("%c[Bot] Přepínám na další vesnici...", "color: blue");
+                    next.click();
+                } else {
+                    window.location.reload();
+                }
             }
         }, switchSpeed * 1000);
     }
