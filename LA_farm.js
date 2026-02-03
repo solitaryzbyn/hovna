@@ -20,8 +20,7 @@
     let speed = parseInt(localStorage.speed) || 500;
     let stop = localStorage.stop === "false" ? false : true; 
     
-    let activeMaxDistance = 0;
-    let currentTemplate = "";
+    let isProcessing = false;
 
     // Bezpečné čtení hodnot jednotek z šablon
     const getTemplateUnit = (rowIdx, unitName) => {
@@ -34,7 +33,7 @@
     panel.id = "farm-bot-panel";
     panel.style = "background: #e3d5b8; border: 2px solid #7d510f; padding: 10px; margin: 10px 0; font-family: Verdana,Arial,sans-serif;";
     panel.innerHTML = `
-        <h3 style="margin-top:0">Farm Bot v0.5</h3>
+        <h3 style="margin-top:0">Farm Bot v0.6</h3>
         <p>Max. vzdálenost A: <input id='distInputA' value='${maxDistanceA}' style='width:35px'> <button id='btnA' class='btn'>Uložit</button></p>
         <p>Max. vzdálenost B: <input id='distInputB' value='${maxDistanceB}' style='width:35px'> <button id='btnB' class='btn'>Uložit</button></p>
         <p>Max. vzdálenost C: <input id='distInputC' value='${maxDistanceC}' style='width:35px'> <button id='btnC' class='btn'>Uložit</button></p>
@@ -65,7 +64,8 @@
     });
 
     const startFarming = () => {
-        if (stop) return;
+        if (stop || isProcessing) return;
+        isProcessing = true;
         
         let units = getAvailableUnits();
         const templA = { spear: getTemplateUnit(1, "spear"), sword: getTemplateUnit(1, "sword"), axe: getTemplateUnit(1, "axe"), spy: getTemplateUnit(1, "spy"), light: getTemplateUnit(1, "light"), heavy: getTemplateUnit(1, "heavy") };
@@ -73,11 +73,11 @@
 
         const rows = document.querySelectorAll("#plunder_list tbody tr[id^='village_']");
         let counter = 0;
+        let totalWait = 0;
 
         rows.forEach((row) => {
             if (stop) return;
 
-            // Dynamický výběr šablony pro každý řádek podle zbývajících jednotek
             let selectedTemplate = "";
             let currentMaxDist = 0;
             let currentCost = null;
@@ -95,7 +95,7 @@
             } else if (maxDistanceC > 0) {
                 selectedTemplate = "c";
                 currentMaxDist = maxDistanceC;
-                currentCost = null; // C šablona je variabilní, bot ji pošle, i když nezná přesný počet (hra si to ohlídá)
+                currentCost = null;
             }
 
             if (!selectedTemplate) return;
@@ -107,13 +107,13 @@
                 const btn = row.querySelector(`.farm_icon_${selectedTemplate}`);
                 if (btn && !btn.classList.contains('disabled')) {
                     counter++;
-                    
-                    // Virtuální odečtení jednotek pro další řádky
                     if (currentCost) {
                         Object.keys(currentCost).forEach(u => units[u] -= currentCost[u]);
                     }
 
                     let wait = (speed * counter) - Math.floor(Math.random() * 100 + 450);
+                    totalWait = Math.max(totalWait, wait);
+
                     setTimeout(() => {
                         if (!stop) {
                             btn.click();
@@ -124,9 +124,25 @@
             }
         });
 
-        if (counter === 0) {
-            console.log("%c[Bot] Žádné další útoky k odeslání v této vsi.", "color: orange");
+        // Přepnutí vesnice až po dokončení všech útoků (+ malá rezerva)
+        if (switchSpeed > 0 && !stop) {
+            let finalDelay = totalWait + (switchSpeed * 1000);
+            console.log(`%c[Bot] Dokončeno. Další vesnice za ${(finalDelay/1000).toFixed(1)}s`, "color: blue");
+            
+            setTimeout(() => {
+                if (!stop) {
+                    const next = document.querySelector('.arrowRight') || document.querySelector('.groupRight');
+                    if (next) {
+                        console.log("%c[Bot] Přepínám...", "color: blue");
+                        next.click();
+                    } else {
+                        window.location.reload();
+                    }
+                }
+            }, finalDelay);
         }
+        
+        isProcessing = false;
     };
 
     // Handlery
@@ -148,21 +164,6 @@
 
     updateUI();
     if (!stop) setTimeout(startFarming, 1000);
-
-    // Automatické přepínání
-    if (switchSpeed > 0) {
-        setTimeout(() => {
-            if (!stop) {
-                const next = document.querySelector('.arrowRight') || document.querySelector('.groupRight');
-                if (next) {
-                    console.log("%c[Bot] Přepínám na další vesnici...", "color: blue");
-                    next.click();
-                } else {
-                    window.location.reload();
-                }
-            }
-        }, switchSpeed * 1000);
-    }
 
 })({
     loadModule: m => new Promise((res, rej) => {
