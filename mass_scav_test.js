@@ -1,5 +1,5 @@
 javascript:
-// Mass scavenging by TheBraub - Ghost Mode Enabled
+// Mass scavenging by TheBrain - Ghost Mode Enabled
 // Version: 0.1
 var version = 0.1;
 
