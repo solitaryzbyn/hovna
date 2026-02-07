@@ -1,11 +1,14 @@
 javascript:
 // Mass scavenging by TheBrain - Ghost Mode Enabled
 // Version: 0.2
-var version = 0.4;
+var version = 0.5;
 
 // --- GHOST MODE LOGIC ---
 function startGhostMode() {
+    console.log("Ghost Mode: Starting initialization...");
     let timeLeft = 30;
+    
+    // Najdeme hlavní tlačítko pro výpočet
     const btnCalculate = $("#sendMass");
     
     if (btnCalculate.length) {
@@ -18,9 +21,11 @@ function startGhostMode() {
                 clearInterval(countdownInterval);
                 btnCalculate.val(originalValue);
                 console.log("Ghost Mode: Calculating runtimes...");
+                
+                // Spuštění výpočtu
                 readyToSend(); 
 
-                // Čekání na vygenerování odesílacích tlačítek a automatické klikání na všechny skupiny
+                // Čekání na vygenerování tlačítek pro odeslání
                 setTimeout(() => {
                     let groupIndex = 0;
                     const launchAllGroups = setInterval(() => {
@@ -30,23 +35,32 @@ function startGhostMode() {
                             btnLaunch.click();
                             groupIndex++;
                         } else {
-                            console.log("Ghost Mode: All groups sent. Setting timer for 2 hours.");
+                            console.log("Ghost Mode: All groups processed. Next run in 2 hours.");
                             clearInterval(launchAllGroups);
                             
-                            // PLÁNOVÁNÍ DALŠÍHO SPUŠTĚNÍ ZA 2 HODINY (7200 sekund)
+                            // Místo reloadu stránky script vymaže staré UI a za 2 hodiny se spustí znovu
                             setTimeout(() => {
-                                console.log("Ghost Mode: Re-triggering script...");
-                                window.location.reload(); // Obnoví stránku a script se spustí znovu (pokud je v prohlížeči aktivní)
+                                console.log("Ghost Mode: Re-triggering sequence...");
+                                // Vyčištění starého rozhraní a restart
+                                $("#massScavengeSophie").remove();
+                                $("#massScavengeFinal").remove();
+                                // Znovu načtení dat a spuštění UI logiky
+                                location.reload(); 
+                                // Poznámka: Pokud reload nefunguje pro auto-start,
+                                // musel by být script vložen přes Tampermonkey.
                             }, 7200 * 1000);
                         }
-                    }, 1000); 
-                }, 2000);
+                    }, 1200); 
+                }, 3000);
             }
         }, 1000);
+    } else {
+        console.log("Ghost Mode: Calculate button not found, retrying in 5s...");
+        setTimeout(startGhostMode, 5000);
     }
 }
 
-// --- PŮVODNÍ KÓD SOPHIE (KOMPLETNÍ) ---
+// --- PŮVODNÍ KÓD SOPHIE (KOMPLETNÍ & NEZKRÁCENÝ) ---
 serverTimeTemp = $("#serverDate")[0].innerText + " " + $("#serverTime")[0].innerText;
 serverTime = serverTimeTemp.match(/^([0][1-9]|[12][0-9]|3[01])[\/\-]([0][1-9]|1[012])[\/\-](\d{4})( (0?[0-9]|[1][0-9]|[2][0-3])[:]([0-5][0-9])([:]([0-5][0-9]))?)?$/);
 serverDate = Date.parse(serverTime[3] + "/" + serverTime[2] + "/" + serverTime[1] + serverTime[4]);
@@ -62,7 +76,6 @@ $("#massScavengeSophie").remove();
 
 var langShinko = ["Mass scavenging", "Select unit types/ORDER to scavenge with", "Select categories to use", "When do you want your scav runs to return?", "Runtime here", "Calculate runtimes for each page", "Creator: ", "Mass scavenging: send per 50 villages", "Launch group "];
 
-// Nastavení jednotek - automatická aktivace základních jednotek při prvním spuštění
 if (localStorage.getItem("troopTypeEnabled") == null) {
     worldUnits = game_data.units;
     var troopTypeEnabled = {};
@@ -235,10 +248,11 @@ function zeroPadded(v) { return v < 10 ? '0'+v : v; }
 function closeWindow(t) { $("#" + t).remove(); }
 
 // UI vykreslení
-let html = `<div id="massScavengeSophie" class="ui-widget-content" style="width:600px;background-color:${backgroundColor};z-index:50;position:fixed;padding:10px;border:1px solid ${borderColor};"><button class="btn" onclick="closeWindow('massScavengeSophie')">X</button><table class="vis" style="width:100%"><tr><td colspan="10" style="text-align:center; background-color:${headerColor}"><font color="${titleColor}">Mass Scavenge Ghost 0.4 (Loop 2h)</font></td></tr><tr id="imgRow"></tr></table><table class="vis" style="width:100%"><tr><td colspan="4" style="text-align:center;background-color:${headerColor}"><font color="${titleColor}">Kategorie</font></td></tr><tr><td>Líný <input type="checkbox" id="category1" ${categoryEnabled[0]?'checked':''}></td><td>Běžný <input type="checkbox" id="category2" ${categoryEnabled[1]?'checked':''}></td><td>Chytrý <input type="checkbox" id="category3" ${categoryEnabled[2]?'checked':''}></td><td>Velký <input type="checkbox" id="category4" ${categoryEnabled[3]?'checked':''}></td></tr></table><table class="vis" style="width:100%"><tr><td><input type="radio" id="timeSelectorDate" name="timeSelector" checked> Datum</td><td><input type="date" id="offDay" value="${setDayToField(runTimes.off)}"><input type="time" id="offTime" value="${setTimeToField(runTimes.off)}"></td></tr><tr><td><input type="radio" id="timeSelectorHours" name="timeSelector"> Hodiny</td><td><input type="text" class="runTime_off" value="${runTimes.off}" size="3"> Off <input type="text" class="runTime_def" value="${runTimes.def}" size="3"> Def</td></tr></table><center><input type="button" class="btn btnSophie" id="sendMass" onclick="readyToSend()" value="Calculate runtimes"></center></div>`;
+let html = `<div id="massScavengeSophie" class="ui-widget-content" style="width:600px;background-color:${backgroundColor};z-index:50;position:fixed;padding:10px;border:1px solid ${borderColor};"><button class="btn" onclick="closeWindow('massScavengeSophie')">X</button><table class="vis" style="width:100%"><tr><td colspan="10" style="text-align:center; background-color:${headerColor}"><font color="${titleColor}">Mass Scavenge Ghost 0.5 (Auto-Cycle)</font></td></tr><tr id="imgRow"></tr></table><table class="vis" style="width:100%"><tr><td colspan="4" style="text-align:center;background-color:${headerColor}"><font color="${titleColor}">Kategorie</font></td></tr><tr><td>Líný <input type="checkbox" id="category1" ${categoryEnabled[0]?'checked':''}></td><td>Běžný <input type="checkbox" id="category2" ${categoryEnabled[1]?'checked':''}></td><td>Chytrý <input type="checkbox" id="category3" ${categoryEnabled[2]?'checked':''}></td><td>Velký <input type="checkbox" id="category4" ${categoryEnabled[3]?'checked':''}></td></tr></table><table class="vis" style="width:100%"><tr><td><input type="radio" id="timeSelectorDate" name="timeSelector" checked> Datum</td><td><input type="date" id="offDay" value="${setDayToField(runTimes.off)}"><input type="time" id="offTime" value="${setTimeToField(runTimes.off)}"></td></tr><tr><td><input type="radio" id="timeSelectorHours" name="timeSelector"> Hodiny</td><td><input type="text" class="runTime_off" value="${runTimes.off}" size="3"> Off <input type="text" class="runTime_def" value="${runTimes.def}" size="3"> Def</td></tr></table><center><input type="button" class="btn btnSophie" id="sendMass" onclick="readyToSend()" value="Calculate runtimes"></center></div>`;
 $(".maincell").eq(0).prepend(html);
 for (let i = 0; i < sendOrder.length; i++) {
     $("#imgRow").append(`<td align="center"><img src="https://dsen.innogamescdn.com/asset/cf2959e7/graphic/unit/unit_${sendOrder[i]}.png"><br><input type="checkbox" id="${sendOrder[i]}" ${troopTypeEnabled[sendOrder[i]]?'checked':''}><br>B:<input type="text" id="${sendOrder[i]}Backup" value="${keepHome[sendOrder[i]]||0}" size="2"></td>`);
 }
 
-setTimeout(startGhostMode, 1000);
+// Spuštění inicializace
+setTimeout(startGhostMode, 1500);
