@@ -1,7 +1,7 @@
 javascript:
 // Mass scavenging by TheBrain - Ghost Mode Enabled
 // Version: 0.2
-var version = 0.3;
+var version = 0.4;
 
 // --- GHOST MODE LOGIC ---
 function startGhostMode() {
@@ -30,10 +30,16 @@ function startGhostMode() {
                             btnLaunch.click();
                             groupIndex++;
                         } else {
-                            console.log("Ghost Mode: All groups sent or no groups found.");
+                            console.log("Ghost Mode: All groups sent. Setting timer for 2 hours.");
                             clearInterval(launchAllGroups);
+                            
+                            // PLÁNOVÁNÍ DALŠÍHO SPUŠTĚNÍ ZA 2 HODINY (7200 sekund)
+                            setTimeout(() => {
+                                console.log("Ghost Mode: Re-triggering script...");
+                                window.location.reload(); // Obnoví stránku a script se spustí znovu (pokud je v prohlížeči aktivní)
+                            }, 7200 * 1000);
                         }
-                    }, 1000); // Pauza 1 sekunda mezi skupinami pro stabilitu
+                    }, 1000); 
                 }, 2000);
             }
         }, 1000);
@@ -56,13 +62,13 @@ $("#massScavengeSophie").remove();
 
 var langShinko = ["Mass scavenging", "Select unit types/ORDER to scavenge with", "Select categories to use", "When do you want your scav runs to return?", "Runtime here", "Calculate runtimes for each page", "Creator: ", "Mass scavenging: send per 50 villages", "Launch group "];
 
-// Nastavení jednotek - pokud jsou všechna vypnutá, zapneme základní pro sběr
+// Nastavení jednotek - automatická aktivace základních jednotek při prvním spuštění
 if (localStorage.getItem("troopTypeEnabled") == null) {
     worldUnits = game_data.units;
     var troopTypeEnabled = {};
     for (var i = 0; i < worldUnits.length; i++) {
         if (["spear", "sword", "axe", "archer", "light", "heavy"].includes(worldUnits[i])) {
-            troopTypeEnabled[worldUnits[i]] = true; // Automaticky zapneme základní jednotky
+            troopTypeEnabled[worldUnits[i]] = true; 
         } else {
             troopTypeEnabled[worldUnits[i]] = false;
         }
@@ -229,7 +235,7 @@ function zeroPadded(v) { return v < 10 ? '0'+v : v; }
 function closeWindow(t) { $("#" + t).remove(); }
 
 // UI vykreslení
-let html = `<div id="massScavengeSophie" class="ui-widget-content" style="width:600px;background-color:${backgroundColor};z-index:50;position:fixed;padding:10px;border:1px solid ${borderColor};"><button class="btn" onclick="closeWindow('massScavengeSophie')">X</button><table class="vis" style="width:100%"><tr><td colspan="10" style="text-align:center; background-color:${headerColor}"><font color="${titleColor}">Mass Scavenge Ghost 0.3</font></td></tr><tr id="imgRow"></tr></table><table class="vis" style="width:100%"><tr><td colspan="4" style="text-align:center;background-color:${headerColor}"><font color="${titleColor}">Kategorie</font></td></tr><tr><td>Líný <input type="checkbox" id="category1" ${categoryEnabled[0]?'checked':''}></td><td>Běžný <input type="checkbox" id="category2" ${categoryEnabled[1]?'checked':''}></td><td>Chytrý <input type="checkbox" id="category3" ${categoryEnabled[2]?'checked':''}></td><td>Velký <input type="checkbox" id="category4" ${categoryEnabled[3]?'checked':''}></td></tr></table><table class="vis" style="width:100%"><tr><td><input type="radio" id="timeSelectorDate" name="timeSelector" checked> Datum</td><td><input type="date" id="offDay" value="${setDayToField(runTimes.off)}"><input type="time" id="offTime" value="${setTimeToField(runTimes.off)}"></td></tr><tr><td><input type="radio" id="timeSelectorHours" name="timeSelector"> Hodiny</td><td><input type="text" class="runTime_off" value="${runTimes.off}" size="3"> Off <input type="text" class="runTime_def" value="${runTimes.def}" size="3"> Def</td></tr></table><center><input type="button" class="btn btnSophie" id="sendMass" onclick="readyToSend()" value="Calculate runtimes"></center></div>`;
+let html = `<div id="massScavengeSophie" class="ui-widget-content" style="width:600px;background-color:${backgroundColor};z-index:50;position:fixed;padding:10px;border:1px solid ${borderColor};"><button class="btn" onclick="closeWindow('massScavengeSophie')">X</button><table class="vis" style="width:100%"><tr><td colspan="10" style="text-align:center; background-color:${headerColor}"><font color="${titleColor}">Mass Scavenge Ghost 0.4 (Loop 2h)</font></td></tr><tr id="imgRow"></tr></table><table class="vis" style="width:100%"><tr><td colspan="4" style="text-align:center;background-color:${headerColor}"><font color="${titleColor}">Kategorie</font></td></tr><tr><td>Líný <input type="checkbox" id="category1" ${categoryEnabled[0]?'checked':''}></td><td>Běžný <input type="checkbox" id="category2" ${categoryEnabled[1]?'checked':''}></td><td>Chytrý <input type="checkbox" id="category3" ${categoryEnabled[2]?'checked':''}></td><td>Velký <input type="checkbox" id="category4" ${categoryEnabled[3]?'checked':''}></td></tr></table><table class="vis" style="width:100%"><tr><td><input type="radio" id="timeSelectorDate" name="timeSelector" checked> Datum</td><td><input type="date" id="offDay" value="${setDayToField(runTimes.off)}"><input type="time" id="offTime" value="${setTimeToField(runTimes.off)}"></td></tr><tr><td><input type="radio" id="timeSelectorHours" name="timeSelector"> Hodiny</td><td><input type="text" class="runTime_off" value="${runTimes.off}" size="3"> Off <input type="text" class="runTime_def" value="${runTimes.def}" size="3"> Def</td></tr></table><center><input type="button" class="btn btnSophie" id="sendMass" onclick="readyToSend()" value="Calculate runtimes"></center></div>`;
 $(".maincell").eq(0).prepend(html);
 for (let i = 0; i < sendOrder.length; i++) {
     $("#imgRow").append(`<td align="center"><img src="https://dsen.innogamescdn.com/asset/cf2959e7/graphic/unit/unit_${sendOrder[i]}.png"><br><input type="checkbox" id="${sendOrder[i]}" ${troopTypeEnabled[sendOrder[i]]?'checked':''}><br>B:<input type="text" id="${sendOrder[i]}Backup" value="${keepHome[sendOrder[i]]||0}" size="2"></td>`);
