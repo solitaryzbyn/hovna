@@ -34,17 +34,20 @@
             const formTable = $('#command-data-form').find('tbody')[0];
             if (!formTable) return;
 
-            // Ghost UI 
+            // Blood-Red UI - s podpisem TheBrain 🧠
             $(formTable).append(
-                `<tr class="acs-row">
-                    <td>Čas dorazu (Ghost):</td><td><input type="datetime-local" id="ACStime" step=".001" style="background: #f4e4bc; border: 1px solid #7d510f;"></td>
+                `<tr class="acs-row-blood">
+                    <td style="color: #ff4d4d; font-weight: bold;">Čas dorazu (Ghost):</td>
+                    <td><input type="datetime-local" id="ACStime" step=".001" class="blood-input"></td>
                  </tr>
-                 <tr class="acs-row">
-                    <td>Korekce sítě (ms):</td>
+                 <tr class="acs-row-blood">
+                    <td style="color: #ff4d4d; font-weight: bold;">Korekce sítě (ms):</td>
                     <td>
-                        <input type="number" id="ACSInternetDelay">
-                        <button type="button" id="ACSbutton" class="btn btn-confirm-ghost">Confirm Ghost Mode</button>
-                        <div style="font-size: 8pt; color: #7d510f; margin-top: 5px; text-align: right; font-style: italic;">Powered by <b>TheBrain</b></div>
+                        <input type="number" id="ACSInternetDelay" class="blood-input">
+                        <button type="button" id="ACSbutton" class="btn btn-blood">Confirm Ghost Mode</button>
+                        <div style="font-size: 9pt; color: #8a0303; margin-top: 5px; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
+                            Powered by TheBrain 🧠
+                        </div>
                     </td>
                  </tr>`
             );
@@ -54,10 +57,7 @@
             const durationRow = $('#command-data-form').find('td:contains("Trvání:"), td:contains("Doba trvání"), td:contains("Duração:")').next();
             const durationText = durationRow.text().trim();
             
-            if (!durationText) {
-                console.error("KRITICKÁ CHYBA: Nepodařilo se najít dobu trvání.");
-                return;
-            }
+            if (!durationText) return;
 
             this.duration = durationText.split(':').map(Number);
             this.internetDelay = localStorage.getItem('ACS.internetDelay') || defaultInternetDelay;
@@ -85,10 +85,7 @@
 
         executeLogic: function () {
             const attackTime = this.getAttackTime();
-            if (isNaN(attackTime.getTime())) {
-                alert("Neplatný formát času!");
-                return;
-            }
+            if (isNaN(attackTime.getTime())) return;
 
             this.internetDelay = parseInt($('#ACSInternetDelay').val());
             localStorage.setItem('ACS.internetDelay', this.internetDelay);
@@ -97,11 +94,9 @@
             const finalDelay = this.internetDelay + ghostJitter;
 
             this.confirmButton.addClass('btn-disabled');
-            $('#ACSbutton').text('GHOST ARMED').css('background', '#444').prop('disabled', true);
+            $('#ACSbutton').text('GHOST ACTIVE').addClass('btn-active-blood').prop('disabled', true);
             
             const timeToWait = (attackTime - Timing.getCurrentServerTime()) - loopStartTime;
-            
-            console.log(`%c [GHOST] Naplánováno (TheBrain Edition). Jitter: ${ghostJitter}ms`, 'color: #00ff00; font-weight: bold;');
 
             setTimeout(() => {
                 this.simulateHumanBehavior();
@@ -145,14 +140,8 @@
         executeSend: function () {
             const btn = this.confirmButton[0];
             ['mousedown', 'mouseup', 'click'].forEach(type => {
-                btn.dispatchEvent(new MouseEvent(type, {
-                    view: window,
-                    bubbles: true,
-                    cancelable: true,
-                    detail: 1
-                }));
+                btn.dispatchEvent(new MouseEvent(type, { view: window, bubbles: true, cancelable: true, detail: 1 }));
             });
-            console.log('%c [GHOST] Příkaz odeslán pod dohledem TheBrain.', 'color: #00ffff; font-weight: bold;');
         },
 
         getAttackTime: function () {
@@ -171,8 +160,26 @@
             displayDate.setSeconds(displayDate.getSeconds() + (this.duration[2] || 0));
             const tzoffset = displayDate.getTimezoneOffset() * 60000;
             return (new Date(displayDate - tzoffset)).toISOString().slice(0, -1);
+        },
+
+        addGlobalStyle: function (css) {
+            var head = document.getElementsByTagName('head')[0];
+            if (!head) return;
+            var style = document.createElement('style');
+            style.type = 'text/css';
+            style.innerHTML = css;
+            head.appendChild(style);
         }
     };
+
+    // Krvavě rudá stylizace
+    CommandSender.addGlobalStyle(`
+        .blood-input { background: #2b0000 !important; color: #ff4d4d !important; border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px; }
+        .btn-blood { background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important; color: white !important; border: 1px solid #330000 !important; cursor: pointer; padding: 4px 8px; font-weight: bold; }
+        .btn-blood:hover { background: #660000 !important; box-shadow: 0 0 5px #ff0000; }
+        .btn-active-blood { background: #1a0000 !important; color: #8a0303 !important; border: 1px solid #4a0000 !important; }
+        .acs-row-blood td { padding: 5px 2px; border-top: 1px solid #4a0000 !important; }
+    `);
 
     const _initCheck = setInterval(() => {
         if (document.getElementById('command-data-form') && typeof jQuery !== 'undefined') {
