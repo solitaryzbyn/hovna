@@ -34,7 +34,7 @@
             const formTable = $('#command-data-form').find('tbody')[0];
             if (!formTable) return;
 
-            // Ghost UI - s přidaným podpisem TheBrain
+            // Ghost UI 
             $(formTable).append(
                 `<tr class="acs-row">
                     <td>Čas dorazu (Ghost):</td><td><input type="datetime-local" id="ACStime" step=".001" style="background: #f4e4bc; border: 1px solid #7d510f;"></td>
