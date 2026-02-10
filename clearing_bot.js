@@ -1,7 +1,7 @@
 (async function() {
     // --- KONFIGURACE ---
     const TOOL_ID = 'ASS';
-    const VERSION = '10.0';
+    const VERSION = '10.2';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -15,21 +15,6 @@
         console.log(`%c[Powered by ${SIGNATURE}]%c ${message}`, STYLE_SIGN, STYLE_MSG);
     }
 
-    async function sendDiscordAlert(message) {
-        try {
-            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `🚨 **[Bot Sběr]** ${message} @everyone` }), null, 'json');
-        } catch (e) { console.error("Discord error"); }
-    }
-
-    function isCaptchaPresent() {
-        const captchaSelectors = ['#bot_check', '.h-captcha', '#hcaptcha-container'];
-        for (let selector of captchaSelectors) {
-            if ($(selector).length > 0 && $(selector).is(':visible')) return true;
-        }
-        return false;
-    }
-
-    // --- NOVÁ FUNKCE: ZÍSKÁNÍ NEJDELŠÍHO ZBÝVAJÍCÍHO ČASU ---
     function getMaxRemainingTimeMs() {
         let maxMs = 0;
         $('.return-countdown, .timer').each(function() {
@@ -43,32 +28,15 @@
         return maxMs;
     }
 
-    function getScavengeStatus() {
-        const allSlots = $('.scavenge-option');
-        let usableCount = 0, readyToClick = 0;
-        allSlots.each(function() {
-            const isLocked = $(this).find('.lock').length > 0;
-            const isUnlocking = $(this).find('.unlock-button').length > 0 || $(this).text().includes('Odemykání');
-            if (!isLocked && !isUnlocking) {
-                usableCount++; 
-                if ($(this).find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').length > 0) readyToClick++;
-            }
-        });
-        return { total: usableCount, ready: readyToClick };
-    }
-
     async function runScavengingCycle() {
-        if (isCaptchaPresent()) {
-            await sendDiscordAlert("Detekována CAPTCHA!");
-            return;
-        }
+        if ($('#bot_check, .h-captcha').filter(':visible').length > 0) return;
 
-        const status = getScavengeStatus();
-        
-        // Pokud není nic připraveno ke kliknutí, čekáme standardně
-        if (status.ready === 0) {
+        const allSlots = $('.scavenge-option');
+        let readyToClick = allSlots.find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
+
+        if (readyToClick.length === 0) {
             const syncWait = Math.floor(Math.random() * (480000 - 300000 + 1)) + 300000;
-            logBot(`Žádný volný slot. Kontrola za ${Math.round(syncWait/60000)} min...`);
+            logBot(`Vše běží. Kontrola za ${Math.round(syncWait/60000)} min...`);
             setTimeout(runScavengingCycle, syncWait);
             return;
         }
@@ -91,42 +59,39 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
             
-            logBot(`Dorovnávám čas podle aktivních sběrů...`);
-            
-            // --- LOGIKA DOROVNÁNÍ ČASU ---
+            // --- DOROVNÁNÍ ČASU ---
             const maxRemainingMs = getMaxRemainingTimeMs();
-            if (maxRemainingMs > 300000) { // Pokud zbývá víc než 5 min
-                const targetMs = maxRemainingMs - 210000; // Cíl: dorazit o 3.5 min dříve
+            if (maxRemainingMs > 120000) {
+                const targetMs = Math.max(600000, maxRemainingMs - 210000); // 3.5 min rezerva
                 const targetHours = (targetMs / 3600000).toFixed(2);
                 
-                // Přepsání času v ASS rozhraní pro tento okamžik
                 const timeInput = $('input[name="scavenge_option_duration"], .scavenge-option-duration input').first();
                 if (timeInput.length > 0) {
                     timeInput.val(targetHours).trigger('change');
-                    logBot(`Nastaven dorovnávací čas: ${targetHours}h`);
-                    await sleep(2000); // Čas pro ASS na přepočet vojáků
+                    logBot(`Dorovnávám čas: ${targetHours}h`);
+                    await sleep(3500); // Čas pro ASS na re-fill vojáků
                 }
             }
 
+            // --- VÝBĚR TLAČÍTEK ZPRAVA DOLEVA ---
+            // .reverse() zajistí, že začneme u Velkých sběračů
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
-                               .reverse();
+                               .reverse(); 
+
+            logBot(`Odesílám ${buttons.length} sběrů (směr: zprava doleva)...`);
 
             for (const btn of buttons) {
-                if (isCaptchaPresent()) return; 
                 btn.click();
-                await sleep(2000 + Math.floor(Math.random() * 1500));
+                await sleep(2500 + Math.floor(Math.random() * 1500));
             }
 
-            const fatigueWait = Math.floor(Math.random() * (20000 - 10000 + 1)) + 10000;
-            logBot(`ÚNAVA: Vyčkávám ${fatigueWait/1000}s...`);
+            const fatigueWait = Math.floor(Math.random() * (15000 - 10000 + 1)) + 10000;
+            logBot(`Hotovo. Únava ${fatigueWait/1000}s...`);
             await sleep(fatigueWait);
 
-            // Výpočet dalšího startu podle nejdelšího sběru
-            const totalDelay = getMaxRemainingTimeMs() + 120000; // Rezerva 2 minuty
-            logBot(`Dorovnáno. Celková synchronizace v: ${getEuroTime(new Date(Date.now() + totalDelay))}`);
-            
-            setTimeout(runScavengingCycle, totalDelay);
+            const nextCheck = getMaxRemainingTimeMs() + 60000;
+            setTimeout(runScavengingCycle, Math.max(300000, nextCheck));
         } catch (err) {
             logBot(`Chyba: ${err.message}`);
             setTimeout(runScavengingCycle, 300000);
