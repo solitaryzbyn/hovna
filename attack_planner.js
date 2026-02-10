@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name                 Advanced Command Scheduler - Ghost Mode
-// @version              0.16
-// @description          Blood-Red UI s dynamickým odpočtem a podpisem TheBrain 🧠.
+// @version              0.17
+// @description          Blood-Red UI s animovaným finále !BAZINGA! a podpisem TheBrain 🧠.
 // @author               joaovperin & Gemini & TheBrain
 // @include              https://**.tribalwars.*/game.php?**&screen=place*&try=confirm*
 // ==/UserScript==
@@ -96,7 +96,6 @@
             this.confirmButton.addClass('btn-disabled');
             $('#ACSbutton').text('GHOST ACTIVE').addClass('btn-active-blood').prop('disabled', true);
             
-            // Zobrazení a nastavení odpočtu
             $('#ACSCountdownContainer').show();
             $('#ACSTargetDisplay').text(`Odeslání: ${attackTime.toLocaleString('cs-CZ')} .${attackTime.getMilliseconds()}`);
             
@@ -119,7 +118,7 @@
                 const diff = target - now;
 
                 if (diff <= 0) {
-                    $('#ACSCountdown').text("00:00:00.000");
+                    if (!this.sent) $('#ACSCountdown').text("00:00:00.000");
                     clearInterval(this.countdownInterval);
                     return;
                 }
@@ -132,7 +131,7 @@
                 $('#ACSCountdown').text(
                     `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
                 );
-            }, 50); // Obnova 20fps pro plynulý odpočet ms
+            }, 50);
         },
 
         simulateHumanBehavior: function() {
@@ -171,7 +170,8 @@
             ['mousedown', 'mouseup', 'click'].forEach(type => {
                 btn.dispatchEvent(new MouseEvent(type, { view: window, bubbles: true, cancelable: true, detail: 1 }));
             });
-            $('#ACSCountdown').text("ODESLÁNO").css('color', '#00ff00');
+            // Finální efekt !BAZINGA!
+            $('#ACSCountdown').text("!BAZINGA!").addClass('bazinga-final');
         },
 
         getAttackTime: function () {
@@ -208,6 +208,17 @@
         .btn-blood:hover { background: #660000 !important; box-shadow: 0 0 5px #ff0000; }
         .btn-active-blood { background: #1a0000 !important; color: #8a0303 !important; border: 1px solid #4a0000 !important; }
         .acs-row-blood td { padding: 5px 2px; border-top: 1px solid #4a0000 !important; }
+        
+        .bazinga-final {
+            color: #ccff00 !important;
+            animation: bazinga-blink 0.4s infinite alternate;
+            text-shadow: 0 0 10px #99ff00;
+        }
+
+        @keyframes bazinga-blink {
+            from { color: #ccff00; }
+            to { color: #ffff00; }
+        }
     `);
 
     const _initCheck = setInterval(() => {
