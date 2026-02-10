@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name                 Advanced Command Scheduler - Fixed Base
-// @version              0.1
-// @description          Opravená základní verze pro české servery.
-// @author               TheBrain
+// @name                 Advanced Command Scheduler - Ghost Mode
+// @version              0.16
+// @description          Blood-Red UI s dynamickým odpočtem a podpisem TheBrain 🧠.
+// @author               joaovperin & Gemini & TheBrain
 // @include              https://**.tribalwars.*/game.php?**&screen=place*&try=confirm*
 // ==/UserScript==
 
@@ -26,6 +26,7 @@
         internetDelay: null,
         sent: false,
         initialized: false,
+        countdownInterval: null,
 
         init: function () {
             if ($('#ACStime').length > 0 || this.initialized) return;
@@ -34,7 +35,6 @@
             const formTable = $('#command-data-form').find('tbody')[0];
             if (!formTable) return;
 
-            // Blood-Red UI - s podpisem TheBrain 🧠
             $(formTable).append(
                 `<tr class="acs-row-blood">
                     <td style="color: #ff4d4d; font-weight: bold;">Čas dorazu (Ghost):</td>
@@ -45,7 +45,13 @@
                     <td>
                         <input type="number" id="ACSInternetDelay" class="blood-input">
                         <button type="button" id="ACSbutton" class="btn btn-blood">Confirm Ghost Mode</button>
-                        <div style="font-size: 9pt; color: #8a0303; margin-top: 5px; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
+                        
+                        <div id="ACSCountdownContainer" style="display:none; margin-top: 10px; padding: 10px; border: 1px dashed #ff0000; background: #1a0000;">
+                            <div id="ACSCountdown" style="color: #ff0000; font-family: monospace; font-size: 14pt; font-weight: bold; text-align: center;">00:00:00.000</div>
+                            <div id="ACSTargetDisplay" style="color: #8a0303; font-size: 8pt; text-align: center; margin-top: 3px;">Odeslání: --:--:--</div>
+                        </div>
+
+                        <div style="font-size: 9pt; color: #8a0303; margin-top: 10px; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
                             Powered by TheBrain 🧠
                         </div>
                     </td>
@@ -53,17 +59,11 @@
             );
 
             this.confirmButton = $('#troop_confirm_submit');
-            
             const durationRow = $('#command-data-form').find('td:contains("Trvání:"), td:contains("Doba trvání"), td:contains("Duração:")').next();
-            const durationText = durationRow.text().trim();
-            
-            if (!durationText) return;
-
-            this.duration = durationText.split(':').map(Number);
+            this.duration = durationRow.text().trim().split(':').map(Number);
             this.internetDelay = localStorage.getItem('ACS.internetDelay') || defaultInternetDelay;
             
             $('#ACSInternetDelay').val(this.internetDelay);
-            
             let d = new Date();
             d.setSeconds(d.getSeconds() + 10);
             $('#ACStime').val(this.convertToInput(d));
@@ -96,6 +96,12 @@
             this.confirmButton.addClass('btn-disabled');
             $('#ACSbutton').text('GHOST ACTIVE').addClass('btn-active-blood').prop('disabled', true);
             
+            // Zobrazení a nastavení odpočtu
+            $('#ACSCountdownContainer').show();
+            $('#ACSTargetDisplay').text(`Odeslání: ${attackTime.toLocaleString('cs-CZ')} .${attackTime.getMilliseconds()}`);
+            
+            this.startCountdown(attackTime);
+
             const timeToWait = (attackTime - Timing.getCurrentServerTime()) - loopStartTime;
 
             setTimeout(() => {
@@ -105,6 +111,28 @@
             setTimeout(() => {
                 this.startLoop(attackTime, finalDelay);
             }, timeToWait);
+        },
+
+        startCountdown: function(target) {
+            this.countdownInterval = setInterval(() => {
+                const now = Timing.getCurrentServerTime();
+                const diff = target - now;
+
+                if (diff <= 0) {
+                    $('#ACSCountdown').text("00:00:00.000");
+                    clearInterval(this.countdownInterval);
+                    return;
+                }
+
+                const hours = Math.floor(diff / 3600000);
+                const minutes = Math.floor((diff % 3600000) / 60000);
+                const seconds = Math.floor((diff % 60000) / 1000);
+                const ms = Math.floor(diff % 1000);
+
+                $('#ACSCountdown').text(
+                    `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
+                );
+            }, 50); // Obnova 20fps pro plynulý odpočet ms
         },
 
         simulateHumanBehavior: function() {
@@ -132,6 +160,7 @@
                         this.sent = true;
                         this.executeSend();
                         worker.terminate();
+                        clearInterval(this.countdownInterval);
                     }
                 }
             };
@@ -142,6 +171,7 @@
             ['mousedown', 'mouseup', 'click'].forEach(type => {
                 btn.dispatchEvent(new MouseEvent(type, { view: window, bubbles: true, cancelable: true, detail: 1 }));
             });
+            $('#ACSCountdown').text("ODESLÁNO").css('color', '#00ff00');
         },
 
         getAttackTime: function () {
@@ -172,7 +202,6 @@
         }
     };
 
-    // Krvavě rudá stylizace
     CommandSender.addGlobalStyle(`
         .blood-input { background: #2b0000 !important; color: #ff4d4d !important; border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px; }
         .btn-blood { background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important; color: white !important; border: 1px solid #330000 !important; cursor: pointer; padding: 4px 8px; font-weight: bold; }
