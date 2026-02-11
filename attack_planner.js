@@ -27,7 +27,7 @@
             const formTable = $('#command-data-form').find('tbody')[0];
             if (!formTable) return;
 
-            // Adding Toggle Button and Planner Container - English labels for universality
+            // Vylepšené UI s výrazným tlačítkem pro nastavení času
             $(formTable).append(
                 `<tr class="acs-row-blood">
                     <td colspan="2" style="text-align:center;">
@@ -36,8 +36,11 @@
                         <div id="ACSMainContainer" style="display:none; margin-top: 10px; border-top: 1px solid #4a0000; padding-top: 10px;">
                             <table style="width:100%;">
                                 <tr>
-                                    <td style="color: #ff4d4d; font-weight: bold;">Target Arrival:</td>
-                                    <td><input type="datetime-local" id="ACStime" step=".001" class="blood-input"></td>
+                                    <td style="color: #ff4d4d; font-weight: bold; width: 30%;">Target Arrival:</td>
+                                    <td style="display: flex; gap: 5px;">
+                                        <input type="datetime-local" id="ACStime" step=".001" class="blood-input" style="flex-grow: 1;">
+                                        <button type="button" id="ACSSetTimeBtn" class="btn btn-blood-bright">SET DAY & TIME</button>
+                                    </td>
                                 </tr>
                                 <tr>
                                     <td style="color: #ff4d4d; font-weight: bold;">Network Correction (ms):</td>
@@ -72,7 +75,11 @@
 
             this.preventVisibilityDetection();
 
-            // Toggle visibility logic
+            // Logika pro nové tlačítko - vyvolání pickeruu
+            $('#ACSSetTimeBtn').click(() => {
+                document.getElementById('ACStime').showPicker();
+            });
+
             $('#ACSToggleBtn').click(() => {
                 $('#ACSMainContainer').toggle();
                 const isVisible = $('#ACSMainContainer').is(':visible');
@@ -213,7 +220,8 @@
     CommandSender.addGlobalStyle(`
         .blood-input { background: #2b0000 !important; color: #ff4d4d !important; border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px; width: 100%; }
         .btn-blood { background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important; color: white !important; border: 1px solid #330000 !important; cursor: pointer; padding: 6px 12px; font-weight: bold; border-radius: 3px; }
-        .btn-blood:hover { background: #660000 !important; box-shadow: 0 0 5px #ff0000; }
+        .btn-blood-bright { background: #ff0000 !important; color: white !important; border: 1px solid #ffffff !important; cursor: pointer; padding: 4px 8px; font-weight: bold; border-radius: 3px; white-space: nowrap; font-size: 8pt; }
+        .btn-blood:hover, .btn-blood-bright:hover { background: #660000 !important; box-shadow: 0 0 5px #ff0000; }
         .btn-active-blood { background: #1a0000 !important; color: #8a0303 !important; border: 1px solid #4a0000 !important; }
         .bazinga-final { color: #ccff00 !important; animation: bazinga-blink 0.4s infinite alternate; text-shadow: 0 0 10px #99ff00; }
         @keyframes bazinga-blink { from { color: #ccff00; } to { color: #ffff00; } }
