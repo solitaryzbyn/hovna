@@ -1,15 +1,7 @@
-// ==UserScript==
-// @name                 Advanced Command Scheduler - Ghost Mode
-// @version              0.17
-// @description          Blood-Red UI s animovaným finále !BAZINGA! a podpisem TheBrain 🧠.
-// @author               joaovperin & Gemini & TheBrain
-// @include              https://**.tribalwars.*/game.php?**&screen=place*&try=confirm*
-// ==/UserScript==
-
 (async (ModuleLoader) => {
     'use strict';
 
-    //****************************** Konfigurace ******************************//
+    //****************************** Configuration ******************************//
     const defaultInternetDelay = 30;
     const worldBackwardDelay = 50;
     const loopStartTime = 1800; 
@@ -29,37 +21,47 @@
         countdownInterval: null,
 
         init: function () {
-            if ($('#ACStime').length > 0 || this.initialized) return;
+            if ($('#ACSMainContainer').length > 0 || this.initialized) return;
             this.initialized = true;
 
             const formTable = $('#command-data-form').find('tbody')[0];
             if (!formTable) return;
 
+            // Adding Toggle Button and Planner Container - English labels for universality
             $(formTable).append(
                 `<tr class="acs-row-blood">
-                    <td style="color: #ff4d4d; font-weight: bold;">Čas dorazu (Ghost):</td>
-                    <td><input type="datetime-local" id="ACStime" step=".001" class="blood-input"></td>
-                 </tr>
-                 <tr class="acs-row-blood">
-                    <td style="color: #ff4d4d; font-weight: bold;">Korekce sítě (ms):</td>
-                    <td>
-                        <input type="number" id="ACSInternetDelay" class="blood-input">
-                        <button type="button" id="ACSbutton" class="btn btn-blood">Confirm Ghost Mode</button>
+                    <td colspan="2" style="text-align:center;">
+                        <button type="button" id="ACSToggleBtn" class="btn btn-blood" style="width:100%;">Open Attack Planner</button>
                         
-                        <div id="ACSCountdownContainer" style="display:none; margin-top: 10px; padding: 10px; border: 1px dashed #ff0000; background: #1a0000;">
-                            <div id="ACSCountdown" style="color: #ff0000; font-family: monospace; font-size: 14pt; font-weight: bold; text-align: center;">00:00:00.000</div>
-                            <div id="ACSTargetDisplay" style="color: #8a0303; font-size: 8pt; text-align: center; margin-top: 3px;">Odeslání: --:--:--</div>
-                        </div>
+                        <div id="ACSMainContainer" style="display:none; margin-top: 10px; border-top: 1px solid #4a0000; padding-top: 10px;">
+                            <table style="width:100%;">
+                                <tr>
+                                    <td style="color: #ff4d4d; font-weight: bold;">Target Arrival:</td>
+                                    <td><input type="datetime-local" id="ACStime" step=".001" class="blood-input"></td>
+                                </tr>
+                                <tr>
+                                    <td style="color: #ff4d4d; font-weight: bold;">Network Correction (ms):</td>
+                                    <td><input type="number" id="ACSInternetDelay" class="blood-input"></td>
+                                </tr>
+                            </table>
+                            
+                            <button type="button" id="ACSbutton" class="btn btn-blood" style="margin-top:10px; width:100%;">Confirm Ghost Mode</button>
+                            
+                            <div id="ACSCountdownContainer" style="display:none; margin-top: 10px; padding: 10px; border: 1px dashed #ff0000; background: #1a0000;">
+                                <div id="ACSCountdown" style="color: #ff0000; font-family: monospace; font-size: 14pt; font-weight: bold; text-align: center;">00:00:00.000</div>
+                                <div id="ACSTargetDisplay" style="color: #8a0303; font-size: 8pt; text-align: center; margin-top: 3px;">Sending at: --:--:--</div>
+                            </div>
 
-                        <div style="font-size: 9pt; color: #8a0303; margin-top: 10px; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
-                            Powered by TheBrain 🧠
+                            <div style="font-size: 9pt; color: #8a0303; margin-top: 10px; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
+                                Powered by TheBrain 🧠
+                            </div>
                         </div>
                     </td>
                  </tr>`
             );
 
             this.confirmButton = $('#troop_confirm_submit');
-            const durationRow = $('#command-data-form').find('td:contains("Trvání:"), td:contains("Doba trvání"), td:contains("Duração:")').next();
+            const durationRow = $('#command-data-form').find('td:contains("Trvání:"), td:contains("Doba trvání"), td:contains("Duração:"), td:contains("Duration:")').next();
             this.duration = durationRow.text().trim().split(':').map(Number);
             this.internetDelay = localStorage.getItem('ACS.internetDelay') || defaultInternetDelay;
             
@@ -69,6 +71,13 @@
             $('#ACStime').val(this.convertToInput(d));
 
             this.preventVisibilityDetection();
+
+            // Toggle visibility logic
+            $('#ACSToggleBtn').click(() => {
+                $('#ACSMainContainer').toggle();
+                const isVisible = $('#ACSMainContainer').is(':visible');
+                $('#ACSToggleBtn').text(isVisible ? 'Close Attack Planner' : 'Open Attack Planner');
+            });
 
             $('#ACSbutton').click((e) => {
                 e.preventDefault();
@@ -97,7 +106,7 @@
             $('#ACSbutton').text('GHOST ACTIVE').addClass('btn-active-blood').prop('disabled', true);
             
             $('#ACSCountdownContainer').show();
-            $('#ACSTargetDisplay').text(`Odeslání: ${attackTime.toLocaleString('cs-CZ')} .${attackTime.getMilliseconds()}`);
+            $('#ACSTargetDisplay').text(`Sending at: ${attackTime.toISOString().replace('T', ' ').slice(0, 23)}`);
             
             this.startCountdown(attackTime);
 
@@ -170,7 +179,6 @@
             ['mousedown', 'mouseup', 'click'].forEach(type => {
                 btn.dispatchEvent(new MouseEvent(type, { view: window, bubbles: true, cancelable: true, detail: 1 }));
             });
-            // Finální efekt !BAZINGA!
             $('#ACSCountdown').text("!BAZINGA!").addClass('bazinga-final');
         },
 
@@ -203,22 +211,12 @@
     };
 
     CommandSender.addGlobalStyle(`
-        .blood-input { background: #2b0000 !important; color: #ff4d4d !important; border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px; }
-        .btn-blood { background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important; color: white !important; border: 1px solid #330000 !important; cursor: pointer; padding: 4px 8px; font-weight: bold; }
+        .blood-input { background: #2b0000 !important; color: #ff4d4d !important; border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px; width: 100%; }
+        .btn-blood { background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important; color: white !important; border: 1px solid #330000 !important; cursor: pointer; padding: 6px 12px; font-weight: bold; border-radius: 3px; }
         .btn-blood:hover { background: #660000 !important; box-shadow: 0 0 5px #ff0000; }
         .btn-active-blood { background: #1a0000 !important; color: #8a0303 !important; border: 1px solid #4a0000 !important; }
-        .acs-row-blood td { padding: 5px 2px; border-top: 1px solid #4a0000 !important; }
-        
-        .bazinga-final {
-            color: #ccff00 !important;
-            animation: bazinga-blink 0.4s infinite alternate;
-            text-shadow: 0 0 10px #99ff00;
-        }
-
-        @keyframes bazinga-blink {
-            from { color: #ccff00; }
-            to { color: #ffff00; }
-        }
+        .bazinga-final { color: #ccff00 !important; animation: bazinga-blink 0.4s infinite alternate; text-shadow: 0 0 10px #99ff00; }
+        @keyframes bazinga-blink { from { color: #ccff00; } to { color: #ffff00; } }
     `);
 
     const _initCheck = setInterval(() => {
