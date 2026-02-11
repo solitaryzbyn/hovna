@@ -1,41 +1,87 @@
 (async function() {
     // --- KONFIGURACE ---
     const TOOL_ID = 'ASS';
-    const VERSION = '10.3';
+    const VERSION = '9.1';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
 
+    // Grafické styly pro konzoli podle předlohy
     const STYLE_SIGN = "background: #8B0000; color: white; font-weight: bold; padding: 2px 5px; border-radius: 3px 0 0 3px;";
     const STYLE_MSG = "background: #1a0000; color: #DC143C; font-weight: bold; padding: 2px 5px; border-radius: 0 3px 3px 0; border: 1px solid #8B0000;";
-    
-    const logBot = (message) => console.log(`%c[Powered by ${SIGNATURE}]%c ${message}`, STYLE_SIGN, STYLE_MSG);
+    const STYLE_ERROR = "background: #ff0000; color: white; font-weight: bold; padding: 2px 5px;";
+
+    const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    function getMaxRemainingTimeMs() {
-        let maxMs = 0;
-        $('.return-countdown, .timer').each(function() {
-            const timeText = $(this).text().trim();
+    function logBot(message) {
+        console.log(`%c[Powered by ${SIGNATURE}]%c ${message}`, STYLE_SIGN, STYLE_MSG);
+    }
+
+    async function sendDiscordAlert(message) {
+        try {
+            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `🚨 **[Bot Sběr]** ${message} @everyone` }), null, 'json');
+        } catch (e) { console.error("Discord error"); }
+    }
+
+    function isCaptchaPresent() {
+        const captchaSelectors = ['#bot_check', '.h-captcha', '#hcaptcha-container'];
+        for (let selector of captchaSelectors) {
+            if ($(selector).length > 0 && $(selector).is(':visible')) return true;
+        }
+        return false;
+    }
+
+    function getScavengeStatus() {
+        const allSlots = $('.scavenge-option');
+        let usableCount = 0, readyToClick = 0;
+        allSlots.each(function() {
+            const isLocked = $(this).find('.lock').length > 0;
+            const isUnlocking = $(this).find('.unlock-button').length > 0 || $(this).text().includes('Odemykání');
+            if (!isLocked && !isUnlocking) {
+                usableCount++; 
+                if ($(this).find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').length > 0) readyToClick++;
+            }
+        });
+        return { total: usableCount, ready: readyToClick };
+    }
+
+    function getTimeAfterSent() {
+        const countdownElement = $('.return-countdown, .timer').filter(':visible').first();
+        if (countdownElement.length > 0) {
+            const timeText = countdownElement.text().trim();
             const parts = timeText.match(/(\d{1,2}):(\d{2}):(\d{2})/);
             if (parts) {
                 const ms = ((parseInt(parts[1]) * 3600) + (parseInt(parts[2]) * 60) + parseInt(parts[3])) * 1000;
-                if (ms > maxMs) maxMs = ms;
+                logBot(`Čas detekován: ${parts[0]}`);
+                return ms;
             }
-        });
-        return maxMs;
+        }
+        return 7200000; 
     }
 
     async function runScavengingCycle() {
-        if ($('#bot_check, .h-captcha').filter(':visible').length > 0) return;
+        if (isCaptchaPresent()) {
+            await sendDiscordAlert("Detekována CAPTCHA!");
+            return;
+        }
 
-        const readyButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
-        if (readyButtons.length === 0) {
-            setTimeout(runScavengingCycle, 300000);
+        const status = getScavengeStatus();
+        if (status.total > 0 && status.ready < status.total) {
+            const syncWait = Math.floor(Math.random() * (480000 - 300000 + 1)) + 300000;
+            logBot(`SYNCHRONIZACE: Čekám ${Math.round(syncWait/60000)} min na návrat všech...`);
+            setTimeout(runScavengingCycle, syncWait);
             return;
         }
 
         if (window.TwCheese === undefined) {
-            window.TwCheese = { ROOT: REPO_URL, tools: {}, fetchLib: async function(path) { return new Promise(res => $.ajax(`${this.ROOT}/${path}`, { cache: true, dataType: "script", complete: res })); }, registerTool(t) { this.tools[t.id] = t; }, use(id) { this.tools[id].use(); }, has(id) { return !!this.tools[id]; } };
+            window.TwCheese = {
+                ROOT: REPO_URL, tools: {},
+                fetchLib: async function(path) { return new Promise(res => $.ajax(`${this.ROOT}/${path}`, { cache: true, dataType: "script", complete: res })); },
+                registerTool(t) { this.tools[t.id] = t; },
+                use(id) { this.tools[id].use(); },
+                has(id) { return !!this.tools[id]; }
+            };
             await TwCheese.fetchLib('dist/vendor.min.js');
             await TwCheese.fetchLib('dist/tool/setup-only/Sidebar.min.js');
             TwCheese.use('Sidebar');
@@ -46,51 +92,37 @@
             await sleep(4000); 
             TwCheese.use(TOOL_ID);
             
-            const maxRemainingMs = getMaxRemainingTimeMs();
-            if (maxRemainingMs > 180000) { // Dorovnáváme, pokud zbývá víc než 3 minuty
-                const targetMs = maxRemainingMs - 210000; // Rezerva 3.5 minuty
-                const targetHours = (targetMs / 3600000).toFixed(2);
-                
-                const timeInput = $('input[name="scavenge_option_duration"], .scavenge-option-duration input').first();
-                if (timeInput.length > 0) {
-                    timeInput.val(targetHours).trigger('change');
-                    logBot(`Dorovnávám na ${targetHours}h...`);
-                    
-                    // KLÍČOVÁ OPRAVA: Čekáme a kontrolujeme, zda ASS skutečně vyplnil vojáky
-                    let filled = false;
-                    for(let i=0; i<10; i++) { // Zkusíme 10x počkat 500ms
-                        await sleep(500);
-                        let currentPop = 0;
-                        $('.unitsInput').each(function() { currentPop += (parseInt($(this).val()) || 0); });
-                        if (currentPop >= 10) {
-                            filled = true;
-                            break;
-                        }
-                    }
-                    if (!filled) {
-                        logBot("ASS nevyplnil vojáky včas. Přeskakuji dorovnání.");
-                    }
-                }
-            }
+            logBot(`Čekám 30s na načtení ASS preferencí...`);
+            await sleep(30000);
 
-            // Odesílání striktně ZPRAVA DOLEVA
             let buttons = Array.from(document.querySelectorAll('.btn-send, .free_send_button'))
                                .filter(btn => btn.offsetParent !== null && !btn.classList.contains('btn-disabled'))
-                               .reverse(); 
+                               .reverse();
 
             for (const btn of buttons) {
-                // Poslední pojistka: kontrola, zda ASS nesmazal vojáky těsně před klikem
+                if (isCaptchaPresent()) return; 
                 btn.click();
-                await sleep(2500 + Math.floor(Math.random() * 1500));
+                await sleep(2000 + Math.floor(Math.random() * 1500));
             }
 
-            logBot(`Cyklus dokončen.`);
-            await sleep(15000);
-            setTimeout(runScavengingCycle, Math.max(300000, getMaxRemainingTimeMs() + 60000));
+            const fatigueWait = Math.floor(Math.random() * (20000 - 10000 + 1)) + 10000;
+            logBot(`ÚNAVA: Vyčkávám ${fatigueWait/1000}s před skenem času...`);
+            await sleep(fatigueWait);
+
+            const dynamicWaitTime = getTimeAfterSent();
+            const randomSpread = Math.floor(Math.random() * (528000 - 210000 + 1)) + 210000;
+            const now = new Date();
+            let nightDelay = (now.getHours() >= 1 && now.getHours() < 7) ? (Math.floor(Math.random() * (69 - 30 + 1)) + 30) * 60000 : 0;
+
+            const totalDelay = dynamicWaitTime + randomSpread + nightDelay;
+            logBot(`CYKLUS DOKONČEN. Další start v: ${getEuroTime(new Date(Date.now() + totalDelay))}`);
+            
+            setTimeout(runScavengingCycle, totalDelay);
         } catch (err) {
-            logBot(`Chyba: ${err.message}`);
+            console.log(`%c[ERROR]%c ${err.message}`, STYLE_ERROR, STYLE_MSG);
             setTimeout(runScavengingCycle, 300000);
         }
     }
+
     runScavengingCycle();
 })();
