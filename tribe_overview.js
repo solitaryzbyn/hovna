@@ -1,21 +1,49 @@
 /*
- * Script Name: Tribe Players Under Attack (Watchdog Parallel Edition)
- * Version: 0.3
- * Note: Use at your own risk. This script automates browser actions.
+ * Script Name: Tribe Players Under Attack (Watchdog All-in-One)
+ * Version: 0.4
+ * Discord Webhook: Integrated
+ * Check Interval: 25 - 46 minutes
  */
+
+// 1. KNIHOVNA twSDK (Zkrácená verze nezbytná pro funkčnost watchdogu)
+if (typeof twSDK === 'undefined') {
+    window.twSDK = {
+        delayBetweenRequests: 200,
+        getAll: function (urls, onLoad, onDone, onError) {
+            var numDone = 0;
+            var lastRequestTime = 0;
+            var minWaitTime = this.delayBetweenRequests;
+            var self = this;
+            loadNext();
+            function loadNext() {
+                if (numDone == urls.length) { onDone(); return; }
+                let now = Date.now();
+                let timeElapsed = now - lastRequestTime;
+                if (timeElapsed < minWaitTime) {
+                    setTimeout(loadNext, minWaitTime - timeElapsed);
+                    return;
+                }
+                lastRequestTime = now;
+                jQuery.get(urls[numDone]).done((data) => {
+                    try { onLoad(numDone, data); ++numDone; loadNext(); } catch (e) { onError(e); }
+                }).fail((xhr) => { onError(xhr); });
+            }
+        }
+    };
+}
 
 (async function() {
     // --- KONFIGURACE ---
     const discordWebhookUrl = "https://discord.com/api/webhooks/1461838230663200890/Ff_OIbBuC3zMxKZFinwxmoJchc2Jq2h2l_nBddEp5hTE3Ys4o1-FCnpAZy20Zv92YnYf";
-    const checkIntervalMin = 25; // Minimální pauza (minuty)
-    const checkIntervalMax = 46; // Maximální pauza (minuty)
+    const checkIntervalMin = 25; // 25 minut
+    const checkIntervalMax = 46; // 46 minut
     const alertSoundUrl = "https://actions.google.com/sounds/v1/alarms/alarm_clock_beep.ogg";
     
     let lastAttackCounts = JSON.parse(localStorage.getItem('ra_watchdog_attacks') || "{}");
 
     function playAlert() {
         const audio = new Audio(alertSoundUrl);
-        audio.play().catch(e => console.log("Audio play blocked by browser."));
+        audio.play().catch(e => console.warn("Audio blocked, click on page to enable."));
     }
 
     async function notifyDiscord(playerName, totalIncs, newIncs) {
@@ -28,6 +56,7 @@
                     { name: "Celkem příchozích", value: totalIncs.toString(), inline: true },
                     { name: "Nárůst o", value: `+${newIncs}`, inline: true }
                 ],
+                footer: { text: "Watchdog v0.4 - S09" },
                 timestamp: new Date()
             }]
         };
@@ -41,7 +70,7 @@
     }
 
     async function runWatchdogCycle() {
-        console.log(`[Watchdog] Spouštím hromadnou kontrolu všech hráčů: ${new Date().toLocaleTimeString()}`);
+        console.log(`%c[Watchdog] Spouštím cyklus: ${new Date().toLocaleTimeString()}`, "color: orange; font-weight: bold;");
         
         let members = [];
         try {
@@ -62,17 +91,16 @@
         if (members.length > 0) {
             const memberUrls = members.map(m => m.url);
             
-            // Spuštění hromadného načtení všech hráčů naráz (využití twSDK logiky)
             twSDK.getAll(
                 memberUrls,
                 function(index, data) {
-                    // Tato funkce se spustí pro každého staženého hráče
                     const htmlDoc = jQuery.parseHTML(data);
                     const member = members[index];
                     let currentTotal = 0;
 
                     jQuery(htmlDoc).find('.table-responsive table tr').not(':first').each(function() {
-                        const incs = parseInt(jQuery(this).find('td:last').text().trim()) || 0;
+                        const incsText = jQuery(this).find('td:last').text().trim();
+                        const incs = parseInt(incsText) || 0;
                         currentTotal += incs;
                     });
 
@@ -80,7 +108,7 @@
 
                     if (currentTotal > previousCount) {
                         let diff = currentTotal - previousCount;
-                        console.log(`[Watchdog] ALERT: ${member.name} (+${diff})`);
+                        console.log(`%c[Alert] ${member.name}: ${previousCount} -> ${currentTotal} (+${diff})`, "color: red; font-weight: bold;");
                         playAlert();
                         notifyDiscord(member.name, currentTotal, diff);
                     }
@@ -88,24 +116,24 @@
                     lastAttackCounts[member.id] = currentTotal;
                 },
                 function() {
-                    // Tato funkce se spustí po dokončení úplně všech požadavků
                     localStorage.setItem('ra_watchdog_attacks', JSON.stringify(lastAttackCounts));
-                    
-                    const nextRunMs = (checkIntervalMin * 60 * 1000) + (Math.random() * (checkIntervalMax - checkIntervalMin) * 60 * 1000);
-                    console.log(`[Watchdog] Hromadná kontrola hotova. Další za ${Math.round(nextRunMs/60000)} minut.`);
-                    setTimeout(runWatchdogCycle, nextRunMs);
+                    const nextRunMin = Math.floor(Math.random() * (checkIntervalMax - checkIntervalMin + 1)) + checkIntervalMin;
+                    console.log(`%c[Watchdog] Hotovo. Další kontrola za ${nextRunMin} minut.`, "color: green;");
+                    setTimeout(runWatchdogCycle, nextRunMin * 60 * 1000);
                 },
-                function(err) {
-                    console.error("Chyba při hromadném načítání", err);
-                }
+                function(err) { console.error("Chyba načítání dat", err); }
             );
+        } else {
+            console.warn("Žádní členové nenalezeni (pravděpodobně chybí oprávnění nebo nikdo nesdílí data).");
+            setTimeout(runWatchdogCycle, checkIntervalMin * 60 * 1000);
         }
     }
 
-    if (typeof game_data !== 'undefined' && typeof twSDK !== 'undefined') {
-        UI.SuccessMessage(`Watchdog v0.3 spuštěn (interval ${checkIntervalMin}-${checkIntervalMax} min).`);
+    // Spuštění po verifikaci prostředí
+    if (typeof game_data !== 'undefined' && game_data.screen === 'ally') {
+        UI.SuccessMessage(`Watchdog v0.4 aktivován. Interval ${checkIntervalMin}-${checkIntervalMax} min.`);
         runWatchdogCycle();
     } else {
-        UI.ErrorMessage("Chyba: twSDK nenalezeno nebo nejsi ve hře!");
+        UI.ErrorMessage("Watchdog musí být spuštěn v sekci Kmen -> Obrana!");
     }
 })();
