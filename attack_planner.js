@@ -1,3 +1,11 @@
+// ==UserScript==
+// @name                 Advanced Command Scheduler - Ghost Mode
+// @version              0.22
+// @description          Server Time Sync Display with Set Day & Time button and Blood-Red Style.
+// @author               TheBrain🧠
+// @include              https://**.tribalwars.*/game.php?**&screen=place*&try=confirm*
+// ==/UserScript==
+
 (async (ModuleLoader) => {
     'use strict';
 
@@ -27,7 +35,6 @@
             const formTable = $('#command-data-form').find('tbody')[0];
             if (!formTable) return;
 
-            // Vylepšené UI s výrazným tlačítkem pro nastavení času
             $(formTable).append(
                 `<tr class="acs-row-blood">
                     <td colspan="2" style="text-align:center;">
@@ -52,7 +59,7 @@
                             
                             <div id="ACSCountdownContainer" style="display:none; margin-top: 10px; padding: 10px; border: 1px dashed #ff0000; background: #1a0000;">
                                 <div id="ACSCountdown" style="color: #ff0000; font-family: monospace; font-size: 14pt; font-weight: bold; text-align: center;">00:00:00.000</div>
-                                <div id="ACSTargetDisplay" style="color: #8a0303; font-size: 8pt; text-align: center; margin-top: 3px;">Sending at: --:--:--</div>
+                                <div id="ACSTargetDisplay" style="color: #8a0303; font-size: 8pt; text-align: center; margin-top: 3px;">Sending at: --:--:-- (Server Time)</div>
                             </div>
 
                             <div style="font-size: 9pt; color: #8a0303; margin-top: 10px; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
@@ -69,13 +76,12 @@
             this.internetDelay = localStorage.getItem('ACS.internetDelay') || defaultInternetDelay;
             
             $('#ACSInternetDelay').val(this.internetDelay);
-            let d = new Date();
+            let d = new Date(Timing.getCurrentServerTime());
             d.setSeconds(d.getSeconds() + 10);
             $('#ACStime').val(this.convertToInput(d));
 
             this.preventVisibilityDetection();
 
-            // Logika pro nové tlačítko - vyvolání pickeruu
             $('#ACSSetTimeBtn').click(() => {
                 document.getElementById('ACStime').showPicker();
             });
@@ -113,7 +119,18 @@
             $('#ACSbutton').text('GHOST ACTIVE').addClass('btn-active-blood').prop('disabled', true);
             
             $('#ACSCountdownContainer').show();
-            $('#ACSTargetDisplay').text(`Sending at: ${attackTime.toISOString().replace('T', ' ').slice(0, 23)}`);
+            
+            // Synchronizace zobrazení s časem serveru
+            const serverDate = new Date(attackTime.getTime());
+            const dateStr = serverDate.getFullYear() + '-' + 
+                           String(serverDate.getMonth() + 1).padStart(2, '0') + '-' + 
+                           String(serverDate.getDate()).padStart(2, '0');
+            const timeStr = String(serverDate.getHours()).padStart(2, '0') + ':' + 
+                           String(serverDate.getMinutes()).padStart(2, '0') + ':' + 
+                           String(serverDate.getSeconds()).padStart(2, '0');
+            const msStr = String(serverDate.getMilliseconds()).padStart(3, '0');
+            
+            $('#ACSTargetDisplay').text(`Sending at: ${dateStr} ${timeStr}.${msStr} (Server Time)`);
             
             this.startCountdown(attackTime);
 
