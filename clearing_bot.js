@@ -1,7 +1,7 @@
 (async function() {
     // --- KONFIGURACE ---
     const TOOL_ID = 'ASS';
-    const VERSION = '9.4';
+    const VERSION = '9.5';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -9,94 +9,73 @@
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- TVORBA LOGOVACÍHO OKNA ---
+    // --- DASHBOARD UI ---
     const logId = 'thebrain-logger';
     if ($(`#${logId}`).length) $(`#${logId}`).remove();
-
-    $(`
-        <div id="${logId}" style="position: fixed; left: 10px; top: 100px; width: 250px; background: rgba(20, 0, 0, 0.95); border: 2px solid #8B0000; border-radius: 5px; z-index: 99999; font-family: Calibri, sans-serif; box-shadow: 0 0 15px rgba(0,0,0,0.8); color: #DC143C;">
+    const $logger = $(`
+        <div id="${logId}" style="position: fixed; left: 10px; top: 100px; width: 250px; background: rgba(15, 0, 0, 0.95); border: 2px solid #8B0000; border-radius: 5px; z-index: 99999; font-family: Calibri, sans-serif; box-shadow: 0 0 15px black; color: #DC143C;">
             <div style="background: #8B0000; color: white; padding: 5px; font-weight: bold; font-size: 13px; display: flex; justify-content: space-between; border-radius: 3px 3px 0 0;">
-                <span>${SIGNATURE} Dashboard</span>
+                <span>${SIGNATURE} Ghost Dashboard</span>
                 <span style="font-size: 10px;">v${VERSION}</span>
             </div>
-            <div id="logger-countdown" style="padding: 10px; text-align: center; font-size: 20px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">PŘIPRAVEN</div>
-            <div id="logger-content" style="padding: 8px; font-size: 11px; max-height: 150px; overflow-y: auto; line-height: 1.4;">
-                <div>Bezpečnostní režim aktivován...</div>
-            </div>
+            <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">INICIALIZACE</div>
+            <div id="logger-content" style="padding: 8px; font-size: 11px; max-height: 120px; overflow-y: auto; line-height: 1.3;"></div>
         </div>
     `).appendTo('body');
 
     function updateLog(message, isImportant = false) {
-        const time = getEuroTime();
         const style = isImportant ? 'font-weight: bold; color: #ffffff;' : '';
-        $('#logger-content').prepend(`<div style="border-bottom: 1px solid #330000; padding: 2px 0; ${style}">[${time}] ${message}</div>`);
+        $('#logger-content').prepend(`<div style="border-bottom: 1px solid #330000; padding: 2px 0; ${style}">[${getEuroTime()}] ${message}</div>`);
     }
 
-    let countdownInterval;
-    function startVisualCountdown(ms) {
-        clearInterval(countdownInterval);
-        let remaining = Math.floor(ms / 1000);
-        countdownInterval = setInterval(() => {
-            if (remaining <= 0) {
-                $('#logger-countdown').text("AKCE").css('color', '#00ff00');
-                clearInterval(countdownInterval);
-                return;
-            }
-            const mins = Math.floor(remaining / 60);
-            const secs = remaining % 60;
-            $('#logger-countdown').text(`${mins}:${secs.toString().padStart(2, '0')}`);
-            remaining--;
-        }, 1000);
-    }
-
-    function isCaptchaPresent() {
-        return $('#bot_check, .h-captcha, #hcaptcha-container').filter(':visible').length > 0;
-    }
-
-    function getScavengeStatus() {
-        const slots = $('.scavenge-option');
-        let totalUsable = 0;
-        let ready = 0;
-        let activeTimers = [];
-
-        slots.each(function() {
-            const isLocked = $(this).find('.lock').length > 0;
-            const isUnlocking = $(this).find('.unlock-button').length > 0 || $(this).text().includes('Odemykání');
-            if (!isLocked && !isUnlocking) {
-                totalUsable++;
-                const btn = $(this).find('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
-                if (btn.length > 0) ready++;
-                
-                const timerText = $(this).find('.return-countdown, .timer').text().trim();
-                const parts = timerText.match(/(\d{1,2}):(\d{2}):(\d{2})/);
-                if (parts) {
-                    activeTimers.push(((parseInt(parts[1]) * 3600) + (parseInt(parts[2]) * 60) + parseInt(parts[3])) * 1000);
-                }
+    // --- STEALTH POMOCNÉ FUNKCE ---
+    function getRemainingTimeMs() {
+        let maxMs = 0;
+        $('.return-countdown, .timer').each(function() {
+            const timeText = $(this).text().trim();
+            const parts = timeText.match(/(\d{1,2}):(\d{2}):(\d{2})/);
+            if (parts) {
+                const ms = ((parseInt(parts[1]) * 3600) + (parseInt(parts[2]) * 60) + parseInt(parts[3])) * 1000;
+                if (ms > maxMs) maxMs = ms;
             }
         });
-        return { total: totalUsable, ready: ready, maxWait: activeTimers.length > 0 ? Math.max(...activeTimers) : 0 };
+        return maxMs;
+    }
+
+    async function checkRefillReady() {
+        for (let i = 0; i < 15; i++) { // Zkusíme 15x počkat (celkem až 7.5s)
+            let currentPop = 0;
+            $('.unitsInput').each(function() { currentPop += (parseInt($(this).val()) || 0); });
+            if (currentPop >= 10) return true;
+            await sleep(500);
+        }
+        return false;
     }
 
     async function runScavengingCycle() {
-        if (isCaptchaPresent()) {
+        // Kontrola Captchy
+        if ($('#bot_check, .h-captcha, #hcaptcha-container').filter(':visible').length > 0) {
             updateLog("!!! CAPTCHA DETEKCE - ZASTAVENO !!!", true);
-            $('#logger-countdown').text("STOP").css('color', 'red');
-            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `🚨 **[BAN ALERT]** Captcha na účtu! @everyone` }));
+            $('#logger-status').text("STOP").css('color', 'red');
+            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `🚨 **[ALERT]** Captcha na účtu! @everyone` }));
             return;
         }
 
-        const status = getScavengeStatus();
+        // 1. ANALÝZA STAVU (Silent Check)
+        const buttons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
+        const remainingMs = getRemainingTimeMs();
 
-        // OPRAVA SYNCHRONIZACE: Pokud někdo ještě běží, bot „usne“ až do jeho návratu + náhodná rezerva
-        if (status.ready < status.total && status.total > 0) {
-            const waitMs = status.maxWait + (Math.floor(Math.random() * 120) + 60) * 1000; // Návrat + 1-3 minuty rezerva
-            updateLog(`Sync: Čekám na poslední sběr (${Math.round(waitMs/60000)} min)`);
-            startVisualCountdown(waitMs);
-            setTimeout(runScavengingCycle, waitMs);
+        // 2. LOGIKA TICHÉHO SPÁNKU
+        if (buttons.length === 0 && remainingMs > 0) {
+            const extraBuffer = (Math.floor(Math.random() * 150) + 45) * 1000; // 45-150s lidská rezerva
+            const totalSleep = remainingMs + extraBuffer;
+            updateLog(`Tichý spánek: ${Math.round(totalSleep/60000)} min`);
+            $('#logger-status').text("SPÁNEK").css('color', '#666');
+            setTimeout(runScavengingCycle, totalSleep);
             return;
         }
 
-        // --- SPUŠTĚNÍ SBĚRU ---
+        // 3. PŘÍPRAVA AKCE
         if (window.TwCheese === undefined) {
             window.TwCheese = {
                 ROOT: REPO_URL, tools: {},
@@ -113,27 +92,34 @@
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             await sleep(2000);
+            $('#logger-status').text("PŘÍPRAVA").css('color', '#ffcc00');
             TwCheese.use(TOOL_ID);
-            updateLog("Příprava jednotek (30s)...");
+            
+            updateLog("Čekám na výpočet jednotek (30s)...");
             await sleep(30000);
 
-            const buttons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
-            updateLog(`Odesílám ${buttons.length} sběrů...`);
-
-            for (const btn of buttons) {
-                if (isCaptchaPresent()) return;
-                btn.click();
-                await sleep(3000 + Math.floor(Math.random() * 2000)); // Lidštější prodlevy mezi kliky
+            // Verifikace re-fillu před odesláním
+            const isReady = await checkRefillReady();
+            if (!isReady) {
+                updateLog("Chyba: ASS nevyplnil jednotky včas. Restart za 5 min.");
+                setTimeout(runScavengingCycle, 300000);
+                return;
             }
 
-            // Po odeslání vypočítáme pauzu podle nově spuštěného nejdelšího sběru
-            await sleep(5000);
-            const postStatus = getScavengeStatus();
-            const nextCycleWait = (postStatus.maxWait > 0 ? postStatus.maxWait : 7200000) + (Math.floor(Math.random() * 300) + 180) * 1000;
-            
-            updateLog(`Hotovo. Spánek do dalšího návratu.`);
-            startVisualCountdown(nextCycleWait);
-            setTimeout(runScavengingCycle, nextCycleWait);
+            // 4. ODESÍLÁNÍ (Human-like timing)
+            const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
+            updateLog(`Odesílám ${sendButtons.length} sběrů (Zprava Doleva)...`);
+            $('#logger-status').text("AKCE").css('color', '#00ff00');
+
+            for (const btn of sendButtons) {
+                btn.click();
+                // Velmi variabilní pauza mezi kliky
+                await sleep(3200 + Math.floor(Math.random() * 2500)); 
+            }
+
+            updateLog("Cyklus hotov. Výpočet spánku...");
+            await sleep(5000); // Krátká pauza na protažení DOMu
+            runScavengingCycle(); // Rekurzivní skok do spánku
 
         } catch (err) {
             updateLog(`Chyba: ${err.message}`, true);
