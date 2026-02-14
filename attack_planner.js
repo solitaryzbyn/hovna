@@ -35,34 +35,43 @@
             const formTable = $('#command-data-form').find('tbody')[0];
             if (!formTable) return;
 
+            // Perfect Alignment UI - Blood-Red Style
             $(formTable).append(
                 `<tr class="acs-row-blood">
-                    <td colspan="2" style="text-align:center;">
-                        <button type="button" id="ACSToggleBtn" class="btn btn-blood" style="width:100%;">Open Attack Planner</button>
+                    <td colspan="2" style="padding: 0;">
+                        <button type="button" id="ACSToggleBtn" class="btn btn-blood" style="width:100%; box-sizing: border-box; display: block; margin: 0;">Open Attack Planner</button>
                         
-                        <div id="ACSMainContainer" style="display:none; margin-top: 10px; border-top: 1px solid #4a0000; padding-top: 10px;">
-                            <table style="width:100%;">
-                                <tr>
-                                    <td style="color: #ff4d4d; font-weight: bold; width: 30%;">Target Arrival:</td>
-                                    <td style="display: flex; gap: 5px;">
-                                        <input type="datetime-local" id="ACStime" step=".001" class="blood-input" style="flex-grow: 1;">
-                                        <button type="button" id="ACSSetTimeBtn" class="btn btn-blood-bright">SET DAY & TIME</button>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td style="color: #ff4d4d; font-weight: bold;">Network Correction (ms):</td>
-                                    <td><input type="number" id="ACSInternetDelay" class="blood-input"></td>
-                                </tr>
-                            </table>
+                        <div id="ACSMainContainer" style="display:none; border-top: 1px solid #4a0000; box-sizing: border-box; background: rgba(43, 0, 0, 0.1);">
+                            <div style="padding: 10px 0;">
+                                <table style="width:100%; border-spacing: 0 5px; border-collapse: separate;">
+                                    <tr>
+                                        <td style="color: #ff4d4d; font-weight: bold; width: 35%; padding-left: 5px;">Target Arrival:</td>
+                                        <td style="padding-right: 5px;">
+                                            <div style="display: flex; gap: 5px; width: 100%;">
+                                                <input type="datetime-local" id="ACStime" step=".001" class="blood-input" style="flex: 1; min-width: 0;">
+                                                <button type="button" id="ACSSetTimeBtn" class="btn btn-blood-bright">SET DAY & TIME</button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td style="color: #ff4d4d; font-weight: bold; padding-left: 5px;">Network Correction:</td>
+                                        <td style="padding-right: 5px;">
+                                            <input type="number" id="ACSInternetDelay" class="blood-input" style="width: 100%; box-sizing: border-box;">
+                                        </td>
+                                    </tr>
+                                </table>
+                            </div>
                             
-                            <button type="button" id="ACSbutton" class="btn btn-blood" style="margin-top:10px; width:100%;">Confirm Ghost Mode</button>
+                            <button type="button" id="ACSbutton" class="btn btn-blood" style="width:100%; box-sizing: border-box; display: block; margin: 0;">Confirm Ghost Mode</button>
                             
-                            <div id="ACSCountdownContainer" style="display:none; margin-top: 10px; padding: 10px; border: 1px dashed #ff0000; background: #1a0000;">
-                                <div id="ACSCountdown" style="color: #ff0000; font-family: monospace; font-size: 14pt; font-weight: bold; text-align: center;">00:00:00.000</div>
-                                <div id="ACSTargetDisplay" style="color: #8a0303; font-size: 8pt; text-align: center; margin-top: 3px;">Sending at: --:--:-- (Server Time)</div>
+                            <div id="ACSCountdownContainer" style="display:none; box-sizing: border-box; border-top: 1px dashed #ff0000; border-bottom: 1px dashed #ff0000; background: #1a0000; width: 100%;">
+                                <div style="padding: 10px;">
+                                    <div id="ACSCountdown" style="color: #ff0000; font-family: monospace; font-size: 14pt; font-weight: bold; text-align: center;">00:00:00.000</div>
+                                    <div id="ACSTargetDisplay" style="color: #8a0303; font-size: 8pt; text-align: center; margin-top: 3px;">Sending at: --:--:-- (Server Time)</div>
+                                </div>
                             </div>
 
-                            <div style="font-size: 9pt; color: #8a0303; margin-top: 10px; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
+                            <div style="padding: 5px 5px 10px 0; font-size: 9pt; color: #8a0303; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
                                 Powered by TheBrain 🧠
                             </div>
                         </div>
@@ -120,7 +129,6 @@
             
             $('#ACSCountdownContainer').show();
             
-            // Synchronizace zobrazení s časem serveru
             const serverDate = new Date(attackTime.getTime());
             const dateStr = serverDate.getFullYear() + '-' + 
                            String(serverDate.getMonth() + 1).padStart(2, '0') + '-' + 
@@ -235,8 +243,8 @@
     };
 
     CommandSender.addGlobalStyle(`
-        .blood-input { background: #2b0000 !important; color: #ff4d4d !important; border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px; width: 100%; }
-        .btn-blood { background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important; color: white !important; border: 1px solid #330000 !important; cursor: pointer; padding: 6px 12px; font-weight: bold; border-radius: 3px; }
+        .blood-input { background: #2b0000 !important; color: #ff4d4d !important; border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px; }
+        .btn-blood { background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important; color: white !important; border: 1px solid #330000 !important; cursor: pointer; padding: 6px 12px; font-weight: bold; border-radius: 0; }
         .btn-blood-bright { background: #ff0000 !important; color: white !important; border: 1px solid #ffffff !important; cursor: pointer; padding: 4px 8px; font-weight: bold; border-radius: 3px; white-space: nowrap; font-size: 8pt; }
         .btn-blood:hover, .btn-blood-bright:hover { background: #660000 !important; box-shadow: 0 0 5px #ff0000; }
         .btn-active-blood { background: #1a0000 !important; color: #8a0303 !important; border: 1px solid #4a0000 !important; }
