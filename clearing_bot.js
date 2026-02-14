@@ -1,7 +1,7 @@
 (async function() {
-    // --- KONFIGURACE ---
+    
     const TOOL_ID = 'ASS';
-    const VERSION = '9.5';
+    const VERSION = '0.96'; 
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -9,7 +9,7 @@
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('cs-CZ', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
-    // --- DASHBOARD UI ---
+    
     const logId = 'thebrain-logger';
     if ($(`#${logId}`).length) $(`#${logId}`).remove();
     const $logger = $(`
@@ -28,8 +28,8 @@
         $('#logger-content').prepend(`<div style="border-bottom: 1px solid #330000; padding: 2px 0; ${style}">[${getEuroTime()}] ${message}</div>`);
     }
 
-    // --- STEALTH POMOCNÉ FUNKCE ---
-    function getRemainingTimeMs() {
+    // --- FUNKCE PRO ZJIŠTĚNÍ POSLEDNÍHO NÁVRATU ---
+    function getLatestReturnTimeMs() {
         let maxMs = 0;
         $('.return-countdown, .timer').each(function() {
             const timeText = $(this).text().trim();
@@ -43,7 +43,7 @@
     }
 
     async function checkRefillReady() {
-        for (let i = 0; i < 15; i++) { // Zkusíme 15x počkat (celkem až 7.5s)
+        for (let i = 0; i < 15; i++) {
             let currentPop = 0;
             $('.unitsInput').each(function() { currentPop += (parseInt($(this).val()) || 0); });
             if (currentPop >= 10) return true;
@@ -53,7 +53,6 @@
     }
 
     async function runScavengingCycle() {
-        // Kontrola Captchy
         if ($('#bot_check, .h-captcha, #hcaptcha-container').filter(':visible').length > 0) {
             updateLog("!!! CAPTCHA DETEKCE - ZASTAVENO !!!", true);
             $('#logger-status').text("STOP").css('color', 'red');
@@ -61,21 +60,22 @@
             return;
         }
 
-        // 1. ANALÝZA STAVU (Silent Check)
-        const buttons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled');
-        const remainingMs = getRemainingTimeMs();
-
-        // 2. LOGIKA TICHÉHO SPÁNKU
-        if (buttons.length === 0 && remainingMs > 0) {
-            const extraBuffer = (Math.floor(Math.random() * 150) + 45) * 1000; // 45-150s lidská rezerva
-            const totalSleep = remainingMs + extraBuffer;
-            updateLog(`Tichý spánek: ${Math.round(totalSleep/60000)} min`);
-            $('#logger-status').text("SPÁNEK").css('color', '#666');
+        // --- STRIKTNÍ KONTROLA POSLEDNÍHO NÁVRATU ---
+        const latestReturnMs = getLatestReturnTimeMs();
+        if (latestReturnMs > 0) {
+            const humanBuffer = (Math.floor(Math.random() * 120) + 45) * 1000; // 45s - 165s buffer
+            const totalSleep = latestReturnMs + humanBuffer;
+            const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
+            
+            updateLog(`Vojáci jsou venku. Spánek do návratu posledního...`);
+            updateLog(`Probuzení naplánováno na: ${wakeUpTime}`, true);
+            $('#logger-status').text("DEEP SLEEP").css('color', '#666');
+            
             setTimeout(runScavengingCycle, totalSleep);
             return;
         }
 
-        // 3. PŘÍPRAVA AKCE
+        // --- START CYKLU (Všechno vojsko je doma) ---
         if (window.TwCheese === undefined) {
             window.TwCheese = {
                 ROOT: REPO_URL, tools: {},
@@ -98,28 +98,24 @@
             updateLog("Čekám na výpočet jednotek (30s)...");
             await sleep(30000);
 
-            // Verifikace re-fillu před odesláním
-            const isReady = await checkRefillReady();
-            if (!isReady) {
-                updateLog("Chyba: ASS nevyplnil jednotky včas. Restart za 5 min.");
+            if (!(await checkRefillReady())) {
+                updateLog("Chyba re-fillu. Restart za 5 min.");
                 setTimeout(runScavengingCycle, 300000);
                 return;
             }
 
-            // 4. ODESÍLÁNÍ (Human-like timing)
             const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
             updateLog(`Odesílám ${sendButtons.length} sběrů (Zprava Doleva)...`);
             $('#logger-status').text("AKCE").css('color', '#00ff00');
 
             for (const btn of sendButtons) {
                 btn.click();
-                // Velmi variabilní pauza mezi kliky
-                await sleep(3200 + Math.floor(Math.random() * 2500)); 
+                await sleep(3500 + Math.floor(Math.random() * 2000)); 
             }
 
-            updateLog("Cyklus hotov. Výpočet spánku...");
-            await sleep(5000); // Krátká pauza na protažení DOMu
-            runScavengingCycle(); // Rekurzivní skok do spánku
+            updateLog("Vše odesláno. Výpočet spánku...");
+            await sleep(5000);
+            runScavengingCycle(); 
 
         } catch (err) {
             updateLog(`Chyba: ${err.message}`, true);
