@@ -1,13 +1,16 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '0.98';
+    const VERSION = '0.99';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
 
     const getEuroTime = (date = new Date()) => date.toLocaleTimeString('en-GB', { hour12: false });
     const sleep = ms => new Promise(res => setTimeout(res, ms));
+
+    // --- SAFETY COUNTER ---
+    let failureCount = 0; // Tracking consecutive failures
 
     // --- DASHBOARD UI (HUD) ---
     const logId = 'thebrain-logger';
@@ -28,18 +31,13 @@
         $('#logger-content').prepend(`<div style="border-bottom: 1px solid #330000; padding: 2px 0; ${style}">[${getEuroTime()}] ${message}</div>`);
     }
 
-    // --- HUMAN SIMULATION: MOUSE EVENTS ---
+    // --- HUMAN SIMULATION ---
     async function humanClick(element) {
         const events = ['mouseenter', 'mouseover', 'mousedown', 'mouseup', 'click'];
         for (let eventName of events) {
-            const event = new MouseEvent(eventName, {
-                view: window,
-                bubbles: true,
-                cancelable: true,
-                buttons: 1
-            });
+            const event = new MouseEvent(eventName, { view: window, bubbles: true, cancelable: true, buttons: 1 });
             element.dispatchEvent(event);
-            await sleep(Math.floor(Math.random() * 200) + 50); // Small delay between sub-events
+            await sleep(Math.floor(Math.random() * 200) + 50);
         }
     }
 
@@ -67,9 +65,18 @@
     }
 
     async function runScavengingCycle() {
+        // --- EMERGENCY SHUTDOWN CHECK ---
+        if (failureCount >= 3) {
+            updateLog("!!! EMERGENCY SHUTDOWN !!!", true);
+            updateLog("3 consecutive failures detected. Stopping to prevent ban.", true);
+            $('#logger-status').text("SHUTDOWN").css('color', '#ff0000');
+            await $.post(DISCORD_WEBHOOK_URL, JSON.stringify({ content: `🛑 **[EMERGENCY STOP]** Bot was shut down after 3 failed attempts to prevent detection. @everyone` }));
+            return;
+        }
+
         if ($('#bot_check, .h-captcha, #hcaptcha-container').filter(':visible').length > 0) {
             updateLog("!!! CAPTCHA DETECTED - STOPPED !!!", true);
-            $('#logger-status').text("STOPPED").css('color', 'red');
+            $('#logger-status').text("CAPTCHA STOP").css('color', 'red');
             return;
         }
 
@@ -78,20 +85,19 @@
             const now = new Date();
             const hour = now.getHours();
             
-            // --- UPDATED NIGHT MODE LOGIC (01:00 - 07:00) ---
             let extraBuffer;
             if (hour >= 1 && hour < 7) {
-                const nightDelayMinutes = Math.floor(Math.random() * (122 - 49 + 1)) + 49; // 49-122 mins
+                const nightDelayMinutes = Math.floor(Math.random() * (122 - 49 + 1)) + 49;
                 extraBuffer = nightDelayMinutes * 60000;
-                updateLog(`Night mode active. Extra delay: ${nightDelayMinutes} mins.`);
+                updateLog(`Night mode sleep: ${nightDelayMinutes} mins.`);
             } else {
-                extraBuffer = (Math.floor(Math.random() * 120) + 45) * 1000; // Normal day buffer 45-165s
+                extraBuffer = (Math.floor(Math.random() * 120) + 45) * 1000;
             }
 
             const totalSleep = latestReturnMs + extraBuffer;
             const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
             
-            updateLog(`Wake up scheduled for: ${wakeUpTime}`, true);
+            updateLog(`Deep sleep until: ${wakeUpTime}`, true);
             $('#logger-status').text("DEEP SLEEP").css('color', '#666');
             
             setTimeout(runScavengingCycle, totalSleep);
@@ -120,26 +126,36 @@
             await sleep(30000);
 
             if (!(await checkRefillReady())) {
-                updateLog("Refill error. Retrying in 5 min.");
+                failureCount++;
+                updateLog(`Units not filled (Attempt ${failureCount}/3). Retrying in 5m.`);
                 setTimeout(runScavengingCycle, 300000);
                 return;
             }
 
             const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
-            updateLog(`Sending ${sendButtons.length} scavenges (Human interaction mode)...`);
+            if (sendButtons.length === 0) {
+                failureCount++;
+                updateLog(`No buttons found (Attempt ${failureCount}/3).`);
+                setTimeout(runScavengingCycle, 300000);
+                return;
+            }
+
+            updateLog(`Sending ${sendButtons.length} scavenges...`);
             $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
             for (const btn of sendButtons) {
-                await humanClick(btn); // --- USE HUMAN-LIKE CLICK ---
+                await humanClick(btn);
                 await sleep(4000 + Math.floor(Math.random() * 3000)); 
             }
 
-            updateLog("All missions sent. Calculating sleep...");
+            failureCount = 0; // Success! Reset the counter
+            updateLog("Success! Calculating next sleep...");
             await sleep(5000);
             runScavengingCycle(); 
 
         } catch (err) {
-            updateLog(`Error: ${err.message}`, true);
+            failureCount++;
+            updateLog(`System Error (Attempt ${failureCount}/3): ${err.message}`, true);
             setTimeout(runScavengingCycle, 300000);
         }
     }
