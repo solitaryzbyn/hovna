@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.01';
+    const VERSION = '1.02';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -15,7 +15,7 @@
     // --- HUD UI ---
     const logId = 'thebrain-logger';
     if ($(`#${logId}`).length) $(`#${logId}`).remove();
-    const $logger = $(`
+    $(`
         <div id="${logId}" style="position: fixed; left: 10px; top: 100px; width: 260px; background: rgba(15, 0, 0, 0.95); border: 2px solid #8B0000; border-radius: 5px; z-index: 99999; font-family: Calibri, sans-serif; box-shadow: 0 0 20px black; color: #DC143C;">
             <div style="background: #8B0000; color: white; padding: 6px; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; border-radius: 3px 3px 0 0;">
                 <span>${SIGNATURE} v${VERSION}</span>
@@ -35,10 +35,7 @@
         clearInterval(countdownInterval);
         let remaining = Math.floor(ms / 1000);
         countdownInterval = setInterval(() => {
-            if (remaining <= 0) {
-                clearInterval(countdownInterval);
-                return;
-            }
+            if (remaining <= 0) { clearInterval(countdownInterval); return; }
             let m = Math.floor(remaining / 60);
             let s = remaining % 60;
             $('#logger-timer').text(`${m}:${s.toString().padStart(2, '0')}`);
@@ -47,7 +44,6 @@
     }
 
     async function humanClick(element) {
-        // Zrychlená simulace - jen nutné eventy pro reakci hry
         const evs = ['mousedown', 'mouseup', 'click'];
         for (let name of evs) {
             element.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
@@ -69,11 +65,11 @@
     }
 
     async function checkRefillReady() {
-        for (let i = 0; i < 10; i++) { 
+        for (let i = 0; i < 15; i++) { 
             let currentPop = 0;
             $('.unitsInput').each(function() { currentPop += (parseInt($(this).val()) || 0); });
             if (currentPop >= 10) return true;
-            await sleep(300);
+            await sleep(500);
         }
         return false;
     }
@@ -89,10 +85,10 @@
             const now = new Date();
             let buffer = (now.getHours() >= 1 && now.getHours() < 7) ? 
                          (Math.floor(Math.random() * 73) + 49) * 60000 : 
-                         (Math.floor(Math.random() * 60) + 20) * 1000; // 20-80s denní buffer
+                         (Math.floor(Math.random() * 60) + 20) * 1000; 
 
             const totalSleep = latestReturnMs + buffer;
-            updateLog(`Waiting until: ${getEuroTime(new Date(Date.now() + totalSleep))}`);
+            updateLog(`Waiting for return until: ${getEuroTime(new Date(Date.now() + totalSleep))}`);
             $('#logger-status').text("SLEEPING").css('color', '#666');
             startVisualTimer(totalSleep);
             setTimeout(runScavengingCycle, totalSleep);
@@ -109,35 +105,38 @@
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             await sleep(1500);
-            $('#logger-status').text("SYNCING").css('color', '#ffcc00');
+            $('#logger-status').text("PREPARING").css('color', '#ffcc00');
             TwCheese.use(TOOL_ID);
             
-            // Zkráceno čekání na ASS na 8 sekund
-            await sleep(8000);
+            // --- NEW PREP DELAY (15-30s) ---
+            const prepDelay = Math.floor(Math.random() * 15000) + 15000; 
+            updateLog(`Waiting ${Math.round(prepDelay/1000)}s for troop setup...`);
+            await sleep(prepDelay);
 
             if (!(await checkRefillReady())) {
                 failureCount++;
-                setTimeout(runScavengingCycle, 60000);
+                updateLog("Troops not filled. Retrying in 2m.");
+                setTimeout(runScavengingCycle, 120000);
                 return;
             }
 
             const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
-            updateLog(`Sending ${sendButtons.length} missions (Right to Left)...`);
+            updateLog(`Sending ${sendButtons.length} missions...`);
             $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
             for (const btn of sendButtons) {
                 await humanClick(btn);
-                // Rychlé odesílání: 0.8 - 1.8 sekundy mezi kliky
                 await sleep(800 + Math.floor(Math.random() * 1000)); 
             }
 
             failureCount = 0;
-            updateLog("Missions sent successfully.");
-            await sleep(2000);
+            updateLog("Success! Cycle finished.");
+            await sleep(5000);
             runScavengingCycle(); 
 
         } catch (err) {
             failureCount++;
+            updateLog(`Error: ${err.message}`);
             setTimeout(runScavengingCycle, 60000);
         }
     }
