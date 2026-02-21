@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.02';
+    const VERSION = '1.03';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -81,14 +81,24 @@
         }
 
         const latestReturnMs = getLatestReturnTimeMs();
-        if (latestReturnMs > 0) {
-            const now = new Date();
-            let buffer = (now.getHours() >= 1 && now.getHours() < 7) ? 
-                         (Math.floor(Math.random() * 73) + 49) * 60000 : 
-                         (Math.floor(Math.random() * 60) + 20) * 1000; 
+        const now = new Date();
+        const hour = now.getHours();
 
+        // --- DYNAMICKÉ PRODLEVY MEZI CYKLY (v1.03) ---
+        let buffer;
+        if (hour >= 1 && hour < 7) {
+            // Noční prodleva: 52 - 79 minut
+            buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
+        } else {
+            // Denní prodleva: 3 - 12 minut
+            buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
+        }
+
+        if (latestReturnMs > 0 || buffer > 0) {
             const totalSleep = latestReturnMs + buffer;
-            updateLog(`Waiting for return until: ${getEuroTime(new Date(Date.now() + totalSleep))}`);
+            const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
+            
+            updateLog(`Deep sleep active. Next action at: ${wakeUpTime}`);
             $('#logger-status').text("SLEEPING").css('color', '#666');
             startVisualTimer(totalSleep);
             setTimeout(runScavengingCycle, totalSleep);
@@ -105,10 +115,10 @@
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             await sleep(1500);
-            $('#logger-status').text("PREPARING").css('color', '#ffcc00');
+            $('#logger-status').text("SYNCING").css('color', '#ffcc00');
             TwCheese.use(TOOL_ID);
             
-            // --- NEW PREP DELAY (15-30s) ---
+            // Příprava (15-30s) na nastavení preferencí
             const prepDelay = Math.floor(Math.random() * 15000) + 15000; 
             updateLog(`Waiting ${Math.round(prepDelay/1000)}s for troop setup...`);
             await sleep(prepDelay);
