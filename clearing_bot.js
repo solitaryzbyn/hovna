@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.04';
+    const VERSION = '1.05';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -11,9 +11,12 @@
 
     let failureCount = 0;
     let countdownInterval;
-    let nightModeEnabled = true; // Default state
+    
+    // --- PERSISTENCE LOGIC ---
+    const STORAGE_KEY = 'thebrain_night_mode';
+    let nightModeEnabled = localStorage.getItem(STORAGE_KEY) === null ? true : localStorage.getItem(STORAGE_KEY) === 'true';
 
-    // --- HUD UI WITH TOGGLE ---
+    // --- HUD UI WITH SAVE BUTTON ---
     const logId = 'thebrain-logger';
     if ($(`#${logId}`).length) $(`#${logId}`).remove();
     $(`
@@ -24,18 +27,26 @@
             </div>
             <div style="padding: 8px; background: #2a0000; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #8B0000;">
                 <span style="font-size: 11px; color: #fff;">NIGHT MODE (01-07)</span>
-                <button id="night-toggle" style="background: #8B0000; color: white; border: 1px solid #ff0000; cursor: pointer; padding: 2px 8px; font-size: 10px; font-weight: bold; border-radius: 3px;">ON</button>
+                <div>
+                    <button id="night-toggle" style="background: ${nightModeEnabled ? '#8B0000' : '#444'}; color: white; border: 1px solid #ff0000; cursor: pointer; padding: 2px 8px; font-size: 10px; font-weight: bold; border-radius: 3px;">${nightModeEnabled ? 'ON' : 'OFF'}</button>
+                    <button id="config-save" style="background: #228B22; color: white; border: 1px solid #00ff00; cursor: pointer; padding: 2px 8px; font-size: 10px; font-weight: bold; border-radius: 3px; margin-left: 5px;">SAVE</button>
+                </div>
             </div>
             <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">READY</div>
             <div id="logger-content" style="padding: 8px; font-size: 11px; max-height: 140px; overflow-y: auto; line-height: 1.3;"></div>
         </div>
     `).appendTo('body');
 
-    // Toggle logic
+    // UI Handlers
     $(document).on('click', '#night-toggle', function() {
         nightModeEnabled = !nightModeEnabled;
         $(this).text(nightModeEnabled ? 'ON' : 'OFF').css('background', nightModeEnabled ? '#8B0000' : '#444');
-        updateLog(`Night mode ${nightModeEnabled ? 'enabled' : 'disabled'}`);
+    });
+
+    $(document).on('click', '#config-save', function() {
+        localStorage.setItem(STORAGE_KEY, nightModeEnabled);
+        updateLog("Settings saved to browser memory!", true);
+        $(this).fadeOut(100).fadeIn(100);
     });
 
     function updateLog(message, isImportant = false) {
@@ -98,14 +109,14 @@
 
         let buffer;
         if (nightModeEnabled && hour >= 1 && hour < 7) {
-            buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000; // Night: 52-79m
+            buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
         } else {
-            buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000; // Day: 3-12m
+            buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
         }
 
         if (latestReturnMs > 0 || buffer > 0) {
             const totalSleep = latestReturnMs + buffer;
-            updateLog(`Sleep active. Wake up: ${getEuroTime(new Date(Date.now() + totalSleep))}`);
+            updateLog(`Sleep. Next action: ${getEuroTime(new Date(Date.now() + totalSleep))}`);
             $('#logger-status').text("SLEEPING").css('color', '#666');
             startVisualTimer(totalSleep);
             setTimeout(runScavengingCycle, totalSleep);
@@ -146,7 +157,7 @@
             }
 
             failureCount = 0;
-            updateLog("Cycle finished successfully.");
+            updateLog("Cycle finished.");
             await sleep(5000);
             runScavengingCycle(); 
 
