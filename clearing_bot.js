@@ -1,12 +1,5 @@
 (async function() {
-    // --- APP INSTALL MUTE ---
-    // Blokování vyskakovacího okna "Instalovat aplikaci" (PWA prompt)
-    window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        return false;
-    });
-
-    // --- CONFIGURATION ---
+    // --- KONFIGURACE ---
     const TOOL_ID = 'ASS';
     const VERSION = '1.10';
     const SIGNATURE = 'TheBrain 🧠';
@@ -18,12 +11,12 @@
 
     let failureCount = 0;
     let countdownInterval;
-    let isFirstRun = true; // Příznak pro první spuštění
+    let isFirstRun = true;
     
     const STORAGE_KEY = 'thebrain_night_mode';
     let nightModeEnabled = localStorage.getItem(STORAGE_KEY) === null ? true : localStorage.getItem(STORAGE_KEY) === 'true';
 
-    // --- HUD UI ---
+    // --- HUD UI (Fixed Synchronization) ---
     const logId = 'thebrain-logger';
     if ($(`#${logId}`).length) $(`#${logId}`).remove();
     $(`
@@ -63,7 +56,11 @@
         clearInterval(countdownInterval);
         let remaining = Math.floor(ms / 1000);
         countdownInterval = setInterval(() => {
-            if (remaining <= 0) { clearInterval(countdownInterval); return; }
+            if (remaining <= 0) {
+                $('#logger-timer').text("READY");
+                clearInterval(countdownInterval);
+                return;
+            }
             let m = Math.floor(remaining / 60);
             let s = remaining % 60;
             $('#logger-timer').text(`${m}:${s.toString().padStart(2, '0')}`);
@@ -104,7 +101,6 @@
         const now = new Date();
         const hour = now.getHours();
 
-        // LOGIKA PRODLEVY
         let buffer = 0;
         if (nightModeEnabled && hour >= 1 && hour < 7) {
             buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
@@ -112,21 +108,18 @@
             buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
         }
 
-        // Pokud to NENÍ první spuštění, nebo pokud stále běží sběry, tak čekej
+        // --- OPRAVA SYNCHRONIZACE ODPOČTU ---
         if (latestReturnMs > 0 || (!isFirstRun && buffer > 0)) {
             const totalSleep = latestReturnMs + (latestReturnMs > 0 ? buffer : 0);
-            if (totalSleep > 0) {
-                const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
-                updateLog(`Sleeping until: ${wakeUpTime}`);
-                $('#logger-status').text("SLEEPING").css('color', '#666');
-                startVisualTimer(totalSleep);
-                isFirstRun = false; 
-                setTimeout(runScavengingCycle, totalSleep);
-                return;
-            }
+            const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
+            updateLog(`Sleeping until: ${wakeUpTime}`);
+            $('#logger-status').text("SLEEPING").css('color', '#666');
+            startVisualTimer(totalSleep); // Pevně provázáno s výpočtem logu
+            isFirstRun = false; 
+            setTimeout(runScavengingCycle, totalSleep);
+            return;
         }
 
-        // AKCE (Spustí se hned při prvním startu, pokud jsou vojáci doma)
         isFirstRun = false; 
 
         if (window.TwCheese === undefined) {
@@ -143,7 +136,7 @@
             TwCheese.use(TOOL_ID);
             
             const prepDelay = Math.floor(Math.random() * 15000) + 15000; 
-            updateLog(`First start / Action: Waiting ${Math.round(prepDelay/1000)}s for your setup...`);
+            updateLog(`Waiting ${Math.round(prepDelay/1000)}s for setup...`);
             await sleep(prepDelay);
 
             if (!(await checkRefillReady())) {
@@ -159,11 +152,11 @@
 
             for (const btn of sendButtons) {
                 btn.click();
-                await sleep(800 + Math.floor(Math.random() * 1000)); 
+                await sleep(1000 + Math.floor(Math.random() * 1000)); 
             }
 
             failureCount = 0;
-            updateLog("Missions sent. Entering standard cycle.");
+            updateLog("Success! Cycle finished.");
             await sleep(5000);
             runScavengingCycle(); 
 
@@ -176,5 +169,3 @@
 
     runScavengingCycle();
 })();
-
-// Powered by TheBrain🧠
