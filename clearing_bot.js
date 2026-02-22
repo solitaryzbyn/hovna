@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.06';
+    const VERSION = '1.07';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -66,7 +66,6 @@
 
     function getLatestReturnTimeMs() {
         let maxMs = 0;
-        // Zpřesněná selekce pouze pro countdowny sběru
         $('.scavenge-screen .return-countdown, .scavenge-screen .timer').each(function() {
             const timeText = $(this).text().trim();
             const parts = timeText.match(/(\d{1,2}):(\d{2}):(\d{2})/);
@@ -78,39 +77,45 @@
         return maxMs;
     }
 
+    async function checkRefillReady() {
+        for (let i = 0; i < 20; i++) { 
+            let currentPop = 0;
+            $('.unitsInput').each(function() { currentPop += (parseInt($(this).val()) || 0); });
+            if (currentPop >= 10) return true;
+            await sleep(500);
+        }
+        return false;
+    }
+
     async function runScavengingCycle() {
         if (failureCount >= 3) {
             $('#logger-status').text("HALTED").css('color', 'red');
             return;
         }
 
+        // 1. Zjistíme, jestli něco běží
         const latestReturnMs = getLatestReturnTimeMs();
         
-        // Pokud vojska stále běží, bot musí čekat
         if (latestReturnMs > 0) {
-            updateLog(`Waiting for troops to return...`);
-            $('#logger-status').text("WAITING").css('color', '#666');
-            startVisualTimer(latestReturnMs + 5000); // +5s rezerva
-            setTimeout(runScavengingCycle, latestReturnMs + 5000);
+            // Aplikujeme náhodný delay k času návratu
+            const now = new Date();
+            const hour = now.getHours();
+            let extraBuffer;
+            if (nightModeEnabled && hour >= 1 && hour < 7) {
+                extraBuffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
+            } else {
+                extraBuffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
+            }
+
+            const totalWait = latestReturnMs + extraBuffer;
+            updateLog(`Waiting for return + interval (${Math.round(totalWait/60000)}m)`);
+            $('#logger-status').text("SLEEPING").css('color', '#666');
+            startVisualTimer(totalWait);
+            setTimeout(runScavengingCycle, totalWait);
             return;
         }
 
-        // Pokud jsou vojska doma, aplikujeme náhodný delay mezi cykly
-        const now = new Date();
-        const hour = now.getHours();
-        let cycleDelay;
-        if (nightModeEnabled && hour >= 1 && hour < 7) {
-            cycleDelay = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
-        } else {
-            cycleDelay = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
-        }
-
-        updateLog(`Troops home. Applying random interval: ${Math.round(cycleDelay/60000)}m`);
-        $('#logger-status').text("INTERVAL").css('color', '#ffcc00');
-        startVisualTimer(cycleDelay);
-        await sleep(cycleDelay);
-
-        // --- START VLASTNÍHO ODESÍLÁNÍ ---
+        // 2. Pokud nic neběží, jdeme odesílat
         if (window.TwCheese === undefined) {
             window.TwCheese = { ROOT: REPO_URL, tools: {}, fetchLib: async function(p) { return new Promise(res => $.ajax(`${this.ROOT}/${p}`, { cache: true, dataType: "script", complete: res })); }, registerTool(t) { this.tools[t.id] = t; }, use(id) { this.tools[id].use(); }, has(id) { return !!this.tools[id]; } };
             await TwCheese.fetchLib('dist/vendor.min.js');
@@ -121,31 +126,42 @@
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             await sleep(1500);
+            $('#logger-status').text("SYNCING").css('color', '#ffcc00');
             TwCheese.use(TOOL_ID);
             
+            // Čekání 15-30s na nastavení
             const prepDelay = Math.floor(Math.random() * 15000) + 15000; 
-            updateLog(`Preparation: ${Math.round(prepDelay/1000)}s...`);
-            $('#logger-status').text("PREPPING").css('color', '#00ffff');
+            updateLog(`Preparing (${Math.round(prepDelay/1000)}s)...`);
             await sleep(prepDelay);
+
+            if (!(await checkRefillReady())) {
+                failureCount++;
+                updateLog("Units not ready. Retry in 2m.");
+                setTimeout(runScavengingCycle, 120000);
+                return;
+            }
 
             const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
             if (sendButtons.length === 0) {
-                updateLog("No buttons found. Re-scanning.");
-                setTimeout(runScavengingCycle, 30000);
+                updateLog("No missions to send.");
+                setTimeout(runScavengingCycle, 60000);
                 return;
             }
 
             updateLog(`Sending ${sendButtons.length} missions...`);
-            $('#logger-status').text("SENDING").css('color', '#00ff00');
+            $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
             for (const btn of sendButtons) {
-                btn.click(); // Rychlejší click pro spolehlivost
-                await sleep(800 + Math.floor(Math.random() * 1000)); 
+                btn.click();
+                await sleep(1000 + Math.floor(Math.random() * 1000)); 
             }
 
             failureCount = 0;
-            updateLog("Success! Cycle done.");
-            setTimeout(runScavengingCycle, 10000); 
+            updateLog("Missions sent. Calculating next sleep...");
+            
+            // KLÍČOVÁ OPRAVA: Po odeslání počkáme 5s, než znovu zavoláme cyklus, aby se stihly načíst nové časovače v UI
+            await sleep(5000);
+            runScavengingCycle(); 
 
         } catch (err) {
             failureCount++;
