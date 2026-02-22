@@ -1,7 +1,14 @@
 (async function() {
+    // --- APP INSTALL MUTE ---
+    // Blokování vyskakovacího okna "Instalovat aplikaci" (PWA prompt)
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        return false;
+    });
+
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.09';
+    const VERSION = '1.10';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -169,3 +176,5 @@
 
     runScavengingCycle();
 })();
+
+// Powered by TheBrain🧠
