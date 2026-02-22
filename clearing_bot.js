@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.08';
+    const VERSION = '1.09';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -11,19 +11,19 @@
 
     let failureCount = 0;
     let countdownInterval;
+    let isFirstRun = true; // Příznak pro první spuštění
     
-    // --- PERSISTENCE LOGIC (Save/Load) ---
     const STORAGE_KEY = 'thebrain_night_mode';
     let nightModeEnabled = localStorage.getItem(STORAGE_KEY) === null ? true : localStorage.getItem(STORAGE_KEY) === 'true';
 
-    // --- HUD UI (Based on 1.04/1.05 design) ---
+    // --- HUD UI ---
     const logId = 'thebrain-logger';
     if ($(`#${logId}`).length) $(`#${logId}`).remove();
     $(`
         <div id="${logId}" style="position: fixed; left: 10px; top: 100px; width: 260px; background: rgba(15, 0, 0, 0.95); border: 2px solid #8B0000; border-radius: 5px; z-index: 99999; font-family: Calibri, sans-serif; box-shadow: 0 0 20px black; color: #DC143C;">
             <div style="background: #8B0000; color: white; padding: 6px; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; border-radius: 3px 3px 0 0;">
                 <span>${SIGNATURE} v${VERSION}</span>
-                <span id="logger-timer" style="color: #ffcc00;">00:00</span>
+                <span id="logger-timer" style="color: #ffcc00;">READY</span>
             </div>
             <div style="padding: 8px; background: #2a0000; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #8B0000;">
                 <span style="font-size: 11px; color: #fff;">NIGHT MODE (01-07)</span>
@@ -32,12 +32,11 @@
                     <button id="config-save" style="background: #228B22; color: white; border: 1px solid #00ff00; cursor: pointer; padding: 2px 8px; font-size: 10px; font-weight: bold; border-radius: 3px; margin-left: 5px;">SAVE</button>
                 </div>
             </div>
-            <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">READY</div>
+            <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">INITIALIZING</div>
             <div id="logger-content" style="padding: 8px; font-size: 11px; max-height: 140px; overflow-y: auto; line-height: 1.3;"></div>
         </div>
     `).appendTo('body');
 
-    // UI Handlers
     $(document).on('click', '#night-toggle', function() {
         nightModeEnabled = !nightModeEnabled;
         $(this).text(nightModeEnabled ? 'ON' : 'OFF').css('background', nightModeEnabled ? '#8B0000' : '#444');
@@ -65,14 +64,6 @@
         }, 1000);
     }
 
-    async function humanClick(element) {
-        const evs = ['mousedown', 'mouseup', 'click'];
-        for (let name of evs) {
-            element.dispatchEvent(new MouseEvent(name, { view: window, bubbles: true, cancelable: true, buttons: 1 }));
-            await sleep(Math.floor(Math.random() * 50) + 20); 
-        }
-    }
-
     function getLatestReturnTimeMs() {
         let maxMs = 0;
         $('.return-countdown, .timer').each(function() {
@@ -96,7 +87,6 @@
         return false;
     }
 
-    // --- REVERTED TO 1.03 LOGIC FLOW ---
     async function runScavengingCycle() {
         if (failureCount >= 3 || $('#bot_check, .h-captcha').filter(':visible').length > 0) {
             $('#logger-status').text("STOPPED").css('color', 'red');
@@ -107,7 +97,7 @@
         const now = new Date();
         const hour = now.getHours();
 
-        // Delays from version 1.03
+        // LOGIKA PRODLEVY
         let buffer = 0;
         if (nightModeEnabled && hour >= 1 && hour < 7) {
             buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
@@ -115,16 +105,22 @@
             buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
         }
 
-        if (latestReturnMs > 0 || buffer > 0) {
-            const totalSleep = latestReturnMs + buffer;
-            const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
-            
-            updateLog(`Next action at: ${wakeUpTime}`);
-            $('#logger-status').text("SLEEPING").css('color', '#666');
-            startVisualTimer(totalSleep);
-            setTimeout(runScavengingCycle, totalSleep);
-            return;
+        // Pokud to NENÍ první spuštění, nebo pokud stále běží sběry, tak čekej
+        if (latestReturnMs > 0 || (!isFirstRun && buffer > 0)) {
+            const totalSleep = latestReturnMs + (latestReturnMs > 0 ? buffer : 0);
+            if (totalSleep > 0) {
+                const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
+                updateLog(`Sleeping until: ${wakeUpTime}`);
+                $('#logger-status').text("SLEEPING").css('color', '#666');
+                startVisualTimer(totalSleep);
+                isFirstRun = false; 
+                setTimeout(runScavengingCycle, totalSleep);
+                return;
+            }
         }
+
+        // AKCE (Spustí se hned při prvním startu, pokud jsou vojáci doma)
+        isFirstRun = false; 
 
         if (window.TwCheese === undefined) {
             window.TwCheese = { ROOT: REPO_URL, tools: {}, fetchLib: async function(p) { return new Promise(res => $.ajax(`${this.ROOT}/${p}`, { cache: true, dataType: "script", complete: res })); }, registerTool(t) { this.tools[t.id] = t; }, use(id) { this.tools[id].use(); }, has(id) { return !!this.tools[id]; } };
@@ -139,14 +135,13 @@
             $('#logger-status').text("SYNCING").css('color', '#ffcc00');
             TwCheese.use(TOOL_ID);
             
-            // 15-30s prep delay from 1.03
             const prepDelay = Math.floor(Math.random() * 15000) + 15000; 
-            updateLog(`Setup wait: ${Math.round(prepDelay/1000)}s`);
+            updateLog(`First start / Action: Waiting ${Math.round(prepDelay/1000)}s for your setup...`);
             await sleep(prepDelay);
 
             if (!(await checkRefillReady())) {
                 failureCount++;
-                updateLog("Refill error. Retry 2m.");
+                updateLog("Units not ready. Retry 2m.");
                 setTimeout(runScavengingCycle, 120000);
                 return;
             }
@@ -156,12 +151,12 @@
             $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
             for (const btn of sendButtons) {
-                await humanClick(btn);
+                btn.click();
                 await sleep(800 + Math.floor(Math.random() * 1000)); 
             }
 
             failureCount = 0;
-            updateLog("Cycle finished.");
+            updateLog("Missions sent. Entering standard cycle.");
             await sleep(5000);
             runScavengingCycle(); 
 
