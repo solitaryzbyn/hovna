@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.03';
+    const VERSION = '1.04';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -11,8 +11,9 @@
 
     let failureCount = 0;
     let countdownInterval;
+    let nightModeEnabled = true; // Default state
 
-    // --- HUD UI ---
+    // --- HUD UI WITH TOGGLE ---
     const logId = 'thebrain-logger';
     if ($(`#${logId}`).length) $(`#${logId}`).remove();
     $(`
@@ -21,10 +22,21 @@
                 <span>${SIGNATURE} v${VERSION}</span>
                 <span id="logger-timer" style="color: #ffcc00;">00:00</span>
             </div>
+            <div style="padding: 8px; background: #2a0000; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #8B0000;">
+                <span style="font-size: 11px; color: #fff;">NIGHT MODE (01-07)</span>
+                <button id="night-toggle" style="background: #8B0000; color: white; border: 1px solid #ff0000; cursor: pointer; padding: 2px 8px; font-size: 10px; font-weight: bold; border-radius: 3px;">ON</button>
+            </div>
             <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">READY</div>
             <div id="logger-content" style="padding: 8px; font-size: 11px; max-height: 140px; overflow-y: auto; line-height: 1.3;"></div>
         </div>
     `).appendTo('body');
+
+    // Toggle logic
+    $(document).on('click', '#night-toggle', function() {
+        nightModeEnabled = !nightModeEnabled;
+        $(this).text(nightModeEnabled ? 'ON' : 'OFF').css('background', nightModeEnabled ? '#8B0000' : '#444');
+        updateLog(`Night mode ${nightModeEnabled ? 'enabled' : 'disabled'}`);
+    });
 
     function updateLog(message, isImportant = false) {
         const style = isImportant ? 'font-weight: bold; color: #ffffff;' : '';
@@ -84,21 +96,16 @@
         const now = new Date();
         const hour = now.getHours();
 
-        // --- DYNAMICKÉ PRODLEVY MEZI CYKLY (v1.03) ---
         let buffer;
-        if (hour >= 1 && hour < 7) {
-            // Noční prodleva: 52 - 79 minut
-            buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
+        if (nightModeEnabled && hour >= 1 && hour < 7) {
+            buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000; // Night: 52-79m
         } else {
-            // Denní prodleva: 3 - 12 minut
-            buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
+            buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000; // Day: 3-12m
         }
 
         if (latestReturnMs > 0 || buffer > 0) {
             const totalSleep = latestReturnMs + buffer;
-            const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
-            
-            updateLog(`Deep sleep active. Next action at: ${wakeUpTime}`);
+            updateLog(`Sleep active. Wake up: ${getEuroTime(new Date(Date.now() + totalSleep))}`);
             $('#logger-status').text("SLEEPING").css('color', '#666');
             startVisualTimer(totalSleep);
             setTimeout(runScavengingCycle, totalSleep);
@@ -118,14 +125,13 @@
             $('#logger-status').text("SYNCING").css('color', '#ffcc00');
             TwCheese.use(TOOL_ID);
             
-            // Příprava (15-30s) na nastavení preferencí
             const prepDelay = Math.floor(Math.random() * 15000) + 15000; 
-            updateLog(`Waiting ${Math.round(prepDelay/1000)}s for troop setup...`);
+            updateLog(`Waiting ${Math.round(prepDelay/1000)}s for setup...`);
             await sleep(prepDelay);
 
             if (!(await checkRefillReady())) {
                 failureCount++;
-                updateLog("Troops not filled. Retrying in 2m.");
+                updateLog("Troops error. Retry in 2m.");
                 setTimeout(runScavengingCycle, 120000);
                 return;
             }
@@ -140,7 +146,7 @@
             }
 
             failureCount = 0;
-            updateLog("Success! Cycle finished.");
+            updateLog("Cycle finished successfully.");
             await sleep(5000);
             runScavengingCycle(); 
 
