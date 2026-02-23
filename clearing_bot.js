@@ -1,7 +1,7 @@
 (async function() {
-    // --- KONFIGURACE ---
+    // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.11';
+    const VERSION = '1.12';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -12,6 +12,7 @@
     let failureCount = 0;
     let countdownInterval;
     let isFirstRun = true;
+    let isProcessing = false; // Pojistka proti vícenásobnému spuštění
     
     const STORAGE_KEY = 'thebrain_night_mode';
     let nightModeEnabled = localStorage.getItem(STORAGE_KEY) === null ? true : localStorage.getItem(STORAGE_KEY) === 'true';
@@ -93,6 +94,8 @@
     }
 
     async function runScavengingCycle() {
+        if (isProcessing) return; // Zabrání zdvojení cyklu
+        
         if (failureCount >= 3 || $('#bot_check, .h-captcha').filter(':visible').length > 0) {
             $('#logger-status').text("STOPPED").css('color', 'red');
             return;
@@ -109,21 +112,24 @@
             buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
         }
 
-        // --- OPRAVA SMYČKY (Pojistka proti nulovému spánku) ---
+        // --- STRIKTNÍ POJISTKA PROTI ZACYKLENÍ ---
         const totalSleep = latestReturnMs + (latestReturnMs > 0 ? buffer : (isFirstRun ? 0 : buffer));
         
-        if (totalSleep > 10000) { // Spíme jen pokud je to víc než 10 sekund
+        if (totalSleep > 20000) { // Spánek aktivujeme jen pokud je delší než 20 sekund
             const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
-            updateLog(`Sleeping until: ${wakeUpTime}`);
+            updateLog(`Deep sleep active until: ${wakeUpTime}`, true);
             $('#logger-status').text("SLEEPING").css('color', '#666');
             startVisualTimer(totalSleep);
             isFirstRun = false; 
-            setTimeout(runScavengingCycle, totalSleep);
+            setTimeout(() => { isProcessing = false; runScavengingCycle(); }, totalSleep);
+            isProcessing = true;
             return;
         }
 
-        // --- AKCE ---
+        // --- START AKCE ---
+        isProcessing = true;
         isFirstRun = false; 
+
         if (window.TwCheese === undefined) {
             window.TwCheese = { ROOT: REPO_URL, tools: {}, fetchLib: async function(p) { return new Promise(res => $.ajax(`${this.ROOT}/${p}`, { cache: true, dataType: "script", complete: res })); }, registerTool(t) { this.tools[t.id] = t; }, use(id) { this.tools[id].use(); }, has(id) { return !!this.tools[id]; } };
             await TwCheese.fetchLib('dist/vendor.min.js');
@@ -138,12 +144,13 @@
             TwCheese.use(TOOL_ID);
             
             const prepDelay = Math.floor(Math.random() * 15000) + 15000; 
-            updateLog(`Preparation (${Math.round(prepDelay/1000)}s)...`);
+            updateLog(`Waiting ${Math.round(prepDelay/1000)}s for troop setup...`);
             await sleep(prepDelay);
 
             if (!(await checkRefillReady())) {
                 failureCount++;
-                updateLog("Troops not ready. Retry 2m.");
+                updateLog("Troops not filled. Retry 2m.");
+                isProcessing = false;
                 setTimeout(runScavengingCycle, 120000);
                 return;
             }
@@ -151,6 +158,7 @@
             const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
             if (sendButtons.length === 0) {
                 updateLog("No missions available.");
+                isProcessing = false;
                 setTimeout(runScavengingCycle, 60000);
                 return;
             }
@@ -164,13 +172,15 @@
             }
 
             failureCount = 0;
-            updateLog("Missions sent. Calculating sleep...");
-            await sleep(5000); // Čas na refresh UI
+            updateLog("Missions sent successfully.", true);
+            await sleep(10000); // Delší pauza na aktualizaci hry před dalším skenem
+            isProcessing = false;
             runScavengingCycle(); 
 
         } catch (err) {
             failureCount++;
             updateLog(`Error: ${err.message}`);
+            isProcessing = false;
             setTimeout(runScavengingCycle, 60000);
         }
     }
