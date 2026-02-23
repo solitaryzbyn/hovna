@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.13';
+    const VERSION = '1.14';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -10,9 +10,9 @@
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
     let failureCount = 0;
-    let mainLoopInterval;
     let isProcessing = false;
-    let nextRunTime = 0; // Timestamp v ms, kdy má bot příště jednat
+    let isFirstRun = true; // Příznak pro okamžitý start
+    let nextRunTime = 0; 
     
     const STORAGE_KEY = 'thebrain_night_mode';
     let nightModeEnabled = localStorage.getItem(STORAGE_KEY) === null ? true : localStorage.getItem(STORAGE_KEY) === 'true';
@@ -33,7 +33,7 @@
                     <button id="config-save" style="background: #228B22; color: white; border: 1px solid #00ff00; cursor: pointer; padding: 2px 8px; font-size: 10px; font-weight: bold; border-radius: 3px; margin-left: 5px;">SAVE</button>
                 </div>
             </div>
-            <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">INITIALIZING</div>
+            <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">IDLE</div>
             <div id="logger-content" style="padding: 8px; font-size: 11px; max-height: 140px; overflow-y: auto; line-height: 1.3;"></div>
         </div>
     `).appendTo('body');
@@ -112,9 +112,10 @@
             }
 
             failureCount = 0;
+            isFirstRun = false; // Po úspěšném odeslání končí "první start"
             updateLog("Missions sent.", true);
-            await sleep(10000); // Počkej na refresh UI
-            calculateNextRun(); // Po odeslání vypočti nový spánek
+            await sleep(10000); 
+            calculateNextRun(); 
             isProcessing = false;
 
         } catch (err) {
@@ -127,9 +128,16 @@
 
     function calculateNextRun() {
         const latestReturnMs = getLatestReturnTimeMs();
+        
+        // Logika pro okamžitý start
+        if (isFirstRun && latestReturnMs === 0) {
+            updateLog("Instant start: Waiting only for setup.");
+            nextRunTime = Date.now() + 1000; // Spustí se hned (startAction si pak přidá těch 15-30s)
+            return;
+        }
+
         const now = new Date();
         const hour = now.getHours();
-        
         let buffer;
         if (nightModeEnabled && hour >= 1 && hour < 7) {
             buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
@@ -141,11 +149,10 @@
         updateLog(`Scheduled at: ${getEuroTime(new Date(nextRunTime))}`);
     }
 
-    // --- MAIN HEARTBEAT LOOP ---
     function startHeartbeat() {
-        calculateNextRun(); // První výpočet při startu
+        calculateNextRun(); 
         
-        mainLoopInterval = setInterval(() => {
+        setInterval(() => {
             const now = Date.now();
             const remaining = nextRunTime - now;
 
