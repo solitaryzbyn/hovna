@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
     const TOOL_ID = 'ASS';
-    const VERSION = '1.12';
+    const VERSION = '1.13';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -10,9 +10,9 @@
     const sleep = ms => new Promise(res => setTimeout(res, ms));
 
     let failureCount = 0;
-    let countdownInterval;
-    let isFirstRun = true;
-    let isProcessing = false; // Pojistka proti vícenásobnému spuštění
+    let mainLoopInterval;
+    let isProcessing = false;
+    let nextRunTime = 0; // Timestamp v ms, kdy má bot příště jednat
     
     const STORAGE_KEY = 'thebrain_night_mode';
     let nightModeEnabled = localStorage.getItem(STORAGE_KEY) === null ? true : localStorage.getItem(STORAGE_KEY) === 'true';
@@ -33,7 +33,7 @@
                     <button id="config-save" style="background: #228B22; color: white; border: 1px solid #00ff00; cursor: pointer; padding: 2px 8px; font-size: 10px; font-weight: bold; border-radius: 3px; margin-left: 5px;">SAVE</button>
                 </div>
             </div>
-            <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">IDLE</div>
+            <div id="logger-status" style="padding: 10px; text-align: center; font-size: 18px; font-weight: bold; background: #1a0000; border-bottom: 1px solid #8B0000; color: #ffcc00;">INITIALIZING</div>
             <div id="logger-content" style="padding: 8px; font-size: 11px; max-height: 140px; overflow-y: auto; line-height: 1.3;"></div>
         </div>
     `).appendTo('body');
@@ -51,23 +51,6 @@
     function updateLog(message, isImportant = false) {
         const style = isImportant ? 'font-weight: bold; color: #ffffff;' : '';
         $('#logger-content').prepend(`<div style="border-bottom: 1px solid #330000; padding: 2px 0; ${style}">[${getEuroTime()}] ${message}</div>`);
-    }
-
-    function startVisualTimer(ms) {
-        clearInterval(countdownInterval);
-        let remaining = Math.floor(ms / 1000);
-        if (remaining <= 0) { $('#logger-timer').text("READY"); return; }
-        countdownInterval = setInterval(() => {
-            if (remaining <= 0) {
-                $('#logger-timer').text("READY");
-                clearInterval(countdownInterval);
-                return;
-            }
-            let m = Math.floor(remaining / 60);
-            let s = remaining % 60;
-            $('#logger-timer').text(`${m}:${s.toString().padStart(2, '0')}`);
-            remaining--;
-        }, 1000);
     }
 
     function getLatestReturnTimeMs() {
@@ -93,42 +76,10 @@
         return false;
     }
 
-    async function runScavengingCycle() {
-        if (isProcessing) return; // Zabrání zdvojení cyklu
-        
-        if (failureCount >= 3 || $('#bot_check, .h-captcha').filter(':visible').length > 0) {
-            $('#logger-status').text("STOPPED").css('color', 'red');
-            return;
-        }
-
-        const latestReturnMs = getLatestReturnTimeMs();
-        const now = new Date();
-        const hour = now.getHours();
-
-        let buffer = 0;
-        if (nightModeEnabled && hour >= 1 && hour < 7) {
-            buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
-        } else {
-            buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
-        }
-
-        // --- STRIKTNÍ POJISTKA PROTI ZACYKLENÍ ---
-        const totalSleep = latestReturnMs + (latestReturnMs > 0 ? buffer : (isFirstRun ? 0 : buffer));
-        
-        if (totalSleep > 20000) { // Spánek aktivujeme jen pokud je delší než 20 sekund
-            const wakeUpTime = getEuroTime(new Date(Date.now() + totalSleep));
-            updateLog(`Deep sleep active until: ${wakeUpTime}`, true);
-            $('#logger-status').text("SLEEPING").css('color', '#666');
-            startVisualTimer(totalSleep);
-            isFirstRun = false; 
-            setTimeout(() => { isProcessing = false; runScavengingCycle(); }, totalSleep);
-            isProcessing = true;
-            return;
-        }
-
-        // --- START AKCE ---
+    async function startAction() {
+        if (isProcessing) return;
         isProcessing = true;
-        isFirstRun = false; 
+        $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
         if (window.TwCheese === undefined) {
             window.TwCheese = { ROOT: REPO_URL, tools: {}, fetchLib: async function(p) { return new Promise(res => $.ajax(`${this.ROOT}/${p}`, { cache: true, dataType: "script", complete: res })); }, registerTool(t) { this.tools[t.id] = t; }, use(id) { this.tools[id].use(); }, has(id) { return !!this.tools[id]; } };
@@ -140,50 +91,75 @@
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             await sleep(1500);
-            $('#logger-status').text("SYNCING").css('color', '#ffcc00');
             TwCheese.use(TOOL_ID);
             
             const prepDelay = Math.floor(Math.random() * 15000) + 15000; 
-            updateLog(`Waiting ${Math.round(prepDelay/1000)}s for troop setup...`);
+            updateLog(`Setup wait: ${Math.round(prepDelay/1000)}s`);
             await sleep(prepDelay);
 
             if (!(await checkRefillReady())) {
                 failureCount++;
-                updateLog("Troops not filled. Retry 2m.");
+                updateLog("Troops not ready. Delaying.");
+                nextRunTime = Date.now() + 120000;
                 isProcessing = false;
-                setTimeout(runScavengingCycle, 120000);
                 return;
             }
 
             const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
-            if (sendButtons.length === 0) {
-                updateLog("No missions available.");
-                isProcessing = false;
-                setTimeout(runScavengingCycle, 60000);
-                return;
-            }
-
-            updateLog(`Sending ${sendButtons.length} missions...`);
-            $('#logger-status').text("ACTIVE").css('color', '#00ff00');
-
             for (const btn of sendButtons) {
                 btn.click();
                 await sleep(1000 + Math.floor(Math.random() * 1000)); 
             }
 
             failureCount = 0;
-            updateLog("Missions sent successfully.", true);
-            await sleep(10000); // Delší pauza na aktualizaci hry před dalším skenem
+            updateLog("Missions sent.", true);
+            await sleep(10000); // Počkej na refresh UI
+            calculateNextRun(); // Po odeslání vypočti nový spánek
             isProcessing = false;
-            runScavengingCycle(); 
 
         } catch (err) {
             failureCount++;
             updateLog(`Error: ${err.message}`);
+            nextRunTime = Date.now() + 60000;
             isProcessing = false;
-            setTimeout(runScavengingCycle, 60000);
         }
     }
 
-    runScavengingCycle();
+    function calculateNextRun() {
+        const latestReturnMs = getLatestReturnTimeMs();
+        const now = new Date();
+        const hour = now.getHours();
+        
+        let buffer;
+        if (nightModeEnabled && hour >= 1 && hour < 7) {
+            buffer = (Math.floor(Math.random() * (79 - 52 + 1)) + 52) * 60000;
+        } else {
+            buffer = (Math.floor(Math.random() * (12 - 3 + 1)) + 3) * 60000;
+        }
+
+        nextRunTime = Date.now() + latestReturnMs + buffer;
+        updateLog(`Scheduled at: ${getEuroTime(new Date(nextRunTime))}`);
+    }
+
+    // --- MAIN HEARTBEAT LOOP ---
+    function startHeartbeat() {
+        calculateNextRun(); // První výpočet při startu
+        
+        mainLoopInterval = setInterval(() => {
+            const now = Date.now();
+            const remaining = nextRunTime - now;
+
+            if (remaining <= 0 && !isProcessing) {
+                $('#logger-timer').text("READY");
+                startAction();
+            } else if (!isProcessing) {
+                let m = Math.floor(remaining / 60000);
+                let s = Math.floor((remaining % 60000) / 1000);
+                $('#logger-timer').text(`${m}:${s.toString().padStart(2, '0')}`);
+                $('#logger-status').text("SLEEPING").css('color', '#666');
+            }
+        }, 1000);
+    }
+
+    startHeartbeat();
 })();
