@@ -70,11 +70,17 @@
     }
 
     // --- COLLECT RESOURCES ---
+    // Reads resources directly from active scavenge slot previews (reliable post-send values)
     function collectResources() {
-        const w = parseInt($('#wood, .wood, [data-resource="wood"]').first().text().replace(/\D/g,'')) || 0;
-        const s = parseInt($('#stone, .stone, [data-resource="stone"]').first().text().replace(/\D/g,'')) || 0;
-        const i = parseInt($('#iron, .iron, [data-resource="iron"]').first().text().replace(/\D/g,'')) || 0;
-        return { wood: w, stone: s, iron: i };
+        let wood = 0, stone = 0, iron = 0;
+        $('.scavenge-option').each(function() {
+            if ($(this).find('.active-view').is(':visible') || $(this).find('.return-countdown').length) {
+                wood  += parseInt($(this).find('.wood-value').text())  || 0;
+                stone += parseInt($(this).find('.stone-value').text()) || 0;
+                iron  += parseInt($(this).find('.iron-value').text())  || 0;
+            }
+        });
+        return { wood, stone, iron };
     }
 
     // --- TOOLTIP ENGINE ---
@@ -293,6 +299,8 @@
         updateLog("✅ Settings saved!", true);
     });
 
+    let setupPausedRemaining = null;
+
     $(document).on('click', '#btn-pause', function() {
         isPaused = !isPaused;
         $(this)
@@ -301,6 +309,22 @@
             .css('border-color', isPaused ? '#00ff44' : '#ff4444');
         $('#logger-status').text(isPaused ? 'PAUSED' : 'SLEEPING').css('color', isPaused ? '#ff8800' : '#666');
         updateLog(isPaused ? "⏸ Paused by user." : "▶ Resumed by user.");
+
+        if (isPaused && setupCountdownInterval) {
+            // Freeze countdown — read remaining seconds from displayed text
+            const parts = $('#setup-countdown').text().match(/(\d+):(\d+)/);
+            setupPausedRemaining = parts ? (parseInt(parts[1]) * 60 + parseInt(parts[2])) * 1000 : null;
+            clearInterval(setupCountdownInterval);
+            setupCountdownInterval = null;
+            $('#setup-countdown').css('color', '#ff4444'); // red = frozen
+            updateLog("⏸ Setup countdown frozen.");
+        } else if (!isPaused && setupPausedRemaining !== null) {
+            // Resume countdown from where it stopped
+            $('#setup-countdown').css('color', '#ff8800');
+            startSetupCountdown(setupPausedRemaining);
+            setupPausedRemaining = null;
+            updateLog("▶ Setup countdown resumed.");
+        }
     });
 
     $(document).on('click', '#btn-trigger', function() {
@@ -388,8 +412,6 @@
         isProcessing = true;
         updateLog("🚀 Starting run...", true);
 
-        const resBefore = collectResources();
-
         if (window.TwCheese === undefined) {
             window.TwCheese = {
                 ROOT: REPO_URL, tools: {},
@@ -431,30 +453,38 @@
 
             $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
-            // Sum ALL unit inputs across all scavenge slots BEFORE any clicks
-            // (fields get cleared/reset by the game after each send)
+            // Process each inactive scavenge slot: click fill-all, read units, click send
             let unitsSent = 0;
-            $('input[type="text"], input[type="number"], .unitsInput').filter(':visible').each(function() {
-                const v = parseInt($(this).val());
-                if (!isNaN(v) && v > 0) unitsSent += v;
-            });
+            const slots = $('.scavenge-option').toArray();
+            for (const slot of slots) {
+                const $slot = $(slot);
+                const $inactive = $slot.find('.inactive-view');
+                // Skip slots that are already active (already sent) or locked (no inactive-view)
+                if (!$inactive.length || !$inactive.find('a, button').length) continue;
 
-            const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
-            for (const btn of sendButtons) {
-                btn.click();
-                await sleep(1000 + Math.floor(Math.random() * 1000));
+                // Click "Všechny jednotky" (fill-all) to populate inputs for this slot
+                $slot.find('.fill-all, .fill_button').trigger('click');
+                await sleep(600 + Math.floor(Math.random() * 400));
+
+                // Read unit counts from inputs NOW (widget is loaded for this slot)
+                let slotUnits = 0;
+                $('.unitsInput').each(function() { slotUnits += parseInt($(this).val()) || 0; });
+                unitsSent += slotUnits;
+
+                // Click the send button for this slot
+                const sendBtn = $inactive.find('a, button').filter(':visible').last()[0];
+                if (sendBtn) {
+                    sendBtn.click();
+                    await sleep(1000 + Math.floor(Math.random() * 1000));
+                }
             }
 
             await sleep(3000);
-            const resAfter = collectResources();
-            const gained = {
-                wood:  Math.max(0, resAfter.wood  - resBefore.wood),
-                stone: Math.max(0, resAfter.stone - resBefore.stone),
-                iron:  Math.max(0, resAfter.iron  - resBefore.iron)
-            };
-            stats.resources.wood  += gained.wood;
-            stats.resources.stone += gained.stone;
-            stats.resources.iron  += gained.iron;
+            // Read expected resources directly from active slot previews
+            const gained = collectResources();
+            stats.resources.wood  += gained.wood  || 0;
+            stats.resources.stone += gained.stone || 0;
+            stats.resources.iron  += gained.iron  || 0;
 
             failureCount = 0;
             isFirstRun = false;
