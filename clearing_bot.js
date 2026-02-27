@@ -1,7 +1,7 @@
 (async function() {
     // --- CONFIGURATION ---
-    const TOOL_ID = 'ASS';
-    const VERSION = '2.1';
+    const TOOL_ID  = 'ASS';
+    const VERSION  = '2.1';
     const SIGNATURE = 'TheBrain 🧠';
     const REPO_URL = 'https://solitaryzbyn.github.io/hovna';
     const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1462228257544999077/5jKi12kYmYenlhSzPqSVQxjN_f9NW007ZFCW_2ElWnI6xiW80mJYGj0QeOOcZQLRROCu';
@@ -451,6 +451,7 @@
         isProcessing = true;
         updateLog("🚀 Starting run...", true);
 
+        // Boot TwCheese + ASS if not already loaded
         if (window.TwCheese === undefined) {
             window.TwCheese = {
                 ROOT: REPO_URL, tools: {},
@@ -469,12 +470,15 @@
         try {
             if (!TwCheese.has(TOOL_ID)) await TwCheese.fetchLib(`dist/tool/setup-only/${TOOL_ID}.min.js`);
             await sleep(1500);
-            TwCheese.use(TOOL_ID);
 
             // ---- SETUP WAIT WITH LIVE COUNTDOWN ----
-            const prepDelay = Math.floor(Math.random() * 15000) + 15000; // 15–30s
-            updateLog(`⏳ Setup window open: ${Math.round(prepDelay / 1000)}s to configure settings`);
+            // ASS tool UI is now visible — user can configure units/duration before sending
+            const prepDelay = Math.floor(Math.random() * 15000) + 15000; // 15–30s random
+            updateLog(`⏳ Setup window open: ${Math.round(prepDelay / 1000)}s to configure ASS settings`);
             startSetupCountdown(prepDelay);
+
+            // Activate ASS tool (renders its UI) then wait for user to review
+            TwCheese.use(TOOL_ID);
             await sleep(prepDelay);
 
             // Hide setup bar
@@ -492,34 +496,20 @@
 
             $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
-            // Process each inactive scavenge slot: click fill-all, read units, click send
+            // Count units BEFORE ASS sends (right-to-left per ASS logic)
             let unitsSent = 0;
-            const slots = $('.scavenge-option').toArray();
-            for (const slot of slots) {
-                const $slot = $(slot);
-                const $inactive = $slot.find('.inactive-view');
-                // Skip slots that are already active (already sent) or locked (no inactive-view)
-                if (!$inactive.length || !$inactive.find('a, button').length) continue;
+            $('.unitsInput').each(function() { unitsSent += parseInt($(this).val()) || 0; });
 
-                // Click "Všechny jednotky" (fill-all) to populate inputs for this slot
-                $slot.find('.fill-all, .fill_button').trigger('click');
-                await sleep(600 + Math.floor(Math.random() * 400));
-
-                // Read unit counts from inputs NOW (widget is loaded for this slot)
-                let slotUnits = 0;
-                $('.unitsInput').each(function() { slotUnits += parseInt($(this).val()) || 0; });
-                unitsSent += slotUnits;
-
-                // Click the send button for this slot
-                const sendBtn = $inactive.find('a, button').filter(':visible').last()[0];
-                if (sendBtn) {
-                    sendBtn.click();
-                    await sleep(1000 + Math.floor(Math.random() * 1000));
-                }
+            // ASS handles sending — click its send buttons right-to-left
+            const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
+            for (const btn of sendButtons) {
+                btn.click();
+                await sleep(1000 + Math.floor(Math.random() * 1000));
             }
 
             await sleep(3000);
-            // Read expected resources directly from active slot previews
+
+            // Read resources from active slot previews after ASS sent everything
             const gained = collectResources();
             stats.resources.wood  += gained.wood  || 0;
             stats.resources.stone += gained.stone || 0;
