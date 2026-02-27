@@ -171,7 +171,7 @@
         </div>
 
         <!-- CONTROLS -->
-        <div style="padding:8px 10px;background:#0f0000;border-bottom:1px solid #2a0000;display:flex;gap:6px;justify-content:center;">
+        <div style="padding:8px 10px;background:#0f0000;border-bottom:1px solid #2a0000;display:flex;gap:6px;justify-content:center;flex-wrap:wrap;">
             <button
                 id="btn-pause"
                 data-tip="Pause or resume the bot. While paused, no runs will trigger until you press Resume."
@@ -187,6 +187,20 @@
                 data-tip="Download the last 200 log entries as a .txt file to your computer."
                 style="background:#222;color:#aaa;border:1px solid #555;padding:3px 10px;font-size:11px;border-radius:3px;cursor:pointer;font-family:inherit;"
             >💾 LOG</button>
+            <button
+                id="btn-reset"
+                data-tip="Reset ALL statistics (total runs, today, units sent, resources) and clear the log. Cannot be undone."
+                style="background:#1a0000;color:#ff4444;border:1px solid #440000;padding:3px 10px;font-size:11px;border-radius:3px;cursor:pointer;font-family:inherit;"
+            >🗑 RESET</button>
+        </div>
+
+        <!-- RESET CONFIRM OVERLAY (hidden by default) -->
+        <div id="reset-confirm" style="display:none;padding:10px;background:#110000;border-bottom:1px solid #8B0000;text-align:center;">
+            <div style="font-size:11px;color:#ff4444;margin-bottom:7px;">⚠️ This will erase ALL stats and logs. Are you sure?</div>
+            <div style="display:flex;gap:8px;justify-content:center;">
+                <button id="btn-reset-confirm" style="background:#8B0000;color:#fff;border:1px solid #ff0000;padding:3px 14px;font-size:11px;border-radius:3px;cursor:pointer;font-family:inherit;">YES, RESET</button>
+                <button id="btn-reset-cancel" style="background:#222;color:#aaa;border:1px solid #555;padding:3px 14px;font-size:11px;border-radius:3px;cursor:pointer;font-family:inherit;">CANCEL</button>
+            </div>
         </div>
 
         <!-- NIGHT MODE SETTINGS -->
@@ -341,6 +355,31 @@
         a.href      = URL.createObjectURL(blob);
         a.download  = `thebrain_log_${new Date().toISOString().slice(0,10)}.txt`;
         a.click();
+    });
+
+    $(document).on('click', '#btn-reset', function() {
+        $('#reset-confirm').slideDown(150);
+    });
+
+    $(document).on('click', '#btn-reset-cancel', function() {
+        $('#reset-confirm').slideUp(150);
+    });
+
+    $(document).on('click', '#btn-reset-confirm', function() {
+        // Wipe all stats
+        stats = {
+            totalRuns: 0, todayRuns: 0,
+            lastRunDate: new Date().toDateString(),
+            lastSuccess: null, totalUnits: 0,
+            resources: { wood: 0, stone: 0, iron: 0 },
+            log: []
+        };
+        saveStats(stats);
+        updateStatsUI();
+        // Clear log display
+        $('#logger-content').empty();
+        $('#reset-confirm').slideUp(150);
+        updateLog("🗑 Stats reset by user.", true);
     });
 
     // --- HELPERS ---
