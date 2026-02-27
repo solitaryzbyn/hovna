@@ -431,8 +431,13 @@
 
             $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
+            // Sum ALL unit inputs across all scavenge slots BEFORE any clicks
+            // (fields get cleared/reset by the game after each send)
             let unitsSent = 0;
-            $('.unitsInput').each(function() { unitsSent += (parseInt($(this).val()) || 0); });
+            $('input[type="text"], input[type="number"], .unitsInput').filter(':visible').each(function() {
+                const v = parseInt($(this).val());
+                if (!isNaN(v) && v > 0) unitsSent += v;
+            });
 
             const sendButtons = $('.btn-send, .free_send_button').filter(':visible').not('.btn-disabled').toArray().reverse();
             for (const btn of sendButtons) {
