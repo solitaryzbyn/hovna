@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name                 Advanced Command Scheduler - Ghost Mode v3
-// @version              0.32
+// @version              0.33
 // @description          Server Time Sync with 12h/24h toggle, editable datetime input, attack history, tooltips.
 // @author               TheBrain🧠
 // @include              https://**.tribalwars.*/game.php?**&screen=place*&try=confirm*
@@ -186,9 +186,12 @@
 
             $('#ACSInternetDelay').val(this.internetDelay);
 
-            // Set default selected date to now + 10s
+            // Set default arrival time = now + travel duration + 60s
+            // This ensures the send time is ~60s in the future right from the start
             let d = new Date(Timing.getCurrentServerTime());
-            d.setSeconds(d.getSeconds() + 10);
+            d.setHours(d.getHours()   + (this.duration[0] || 0));
+            d.setMinutes(d.getMinutes() + (this.duration[1] || 0));
+            d.setSeconds(d.getSeconds() + (this.duration[2] || 0) + 60);
             this._setSelectedDate(d);
 
             // Apply saved 12h toggle state AFTER the checkbox exists in DOM
@@ -340,18 +343,21 @@
 
         validateTime: function() {
             if (!this._selectedDate) return;
-            const attackTime = this._getAttackTimeFromSelected();
-            if (!attackTime || isNaN(attackTime.getTime())) return;
-            const now = Timing.getCurrentServerTime();
-            const diff = attackTime - now;
+            const sendTime = this._getAttackTimeFromSelected(); // arrival minus travel = when to click send
+            if (!sendTime || isNaN(sendTime.getTime())) return;
+            const nowMs = new Date(Timing.getCurrentServerTime()).getTime();
+            const sendMs = sendTime.getTime();
+            const diff = sendMs - nowMs;
             const warning = $('#ACSWarning');
 
             if (diff < 0) {
-                warning.text('⚠️ Send time is in the past! Adjust the target arrival time.').show();
+                // Show how far in the past the send time is, to help user correct it
+                const pastSec = Math.round(-diff / 1000);
+                warning.text(`⚠️ Send time is ${pastSec}s in the past! Increase the target arrival time.`).show();
             } else if (diff < 5000) {
-                warning.text('⚠️ Less than 5 seconds remaining — too close to send safely!').show();
+                warning.text('⚠️ Less than 5 seconds until send — too close to activate safely!').show();
             } else if (diff > 86400000 * 7) {
-                warning.text('ℹ️ Target time is more than 7 days ahead — please verify the date.').show();
+                warning.text('ℹ️ Target arrival is more than 7 days ahead — please verify the date.').show();
             } else {
                 warning.hide();
             }
@@ -368,8 +374,8 @@
             const attackTime = this._getAttackTimeFromSelected();
             if (!attackTime || isNaN(attackTime.getTime())) return;
 
-            const now = Timing.getCurrentServerTime();
-            if (attackTime - now < 5000) {
+            const nowMs = new Date(Timing.getCurrentServerTime()).getTime();
+            if (attackTime.getTime() - nowMs < 5000) {
                 alert('Send time is too close or already in the past!');
                 return;
             }
