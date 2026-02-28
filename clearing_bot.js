@@ -445,6 +445,118 @@
         return false;
     }
 
+    // --- GHOST MODE CAPTCHA SOLVER ---
+    const REFRESH_KEY = 'dk_global_refresh_signal';
+    const getRandomDelay = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+
+    const humanClick = (element) => {
+        if (!element) return;
+        const rect = element.getBoundingClientRect();
+        const x = rect.left + getRandomDelay(rect.width * 0.2, rect.width * 0.8);
+        const y = rect.top  + getRandomDelay(rect.height * 0.2, rect.height * 0.8);
+        const events = ['mouseenter', 'mouseover', 'mousedown', 'mouseup', 'click'];
+        let delay = getRandomDelay(150, 450);
+        events.forEach(eventName => {
+            setTimeout(() => {
+                element.dispatchEvent(new MouseEvent(eventName, {
+                    view: window, bubbles: true, cancelable: true,
+                    clientX: x, clientY: y,
+                    buttons: eventName === 'mousedown' ? 1 : 0
+                }));
+            }, delay);
+            delay += getRandomDelay(30, 120);
+        });
+    };
+
+    const solveCaptchaDoc = (doc) => {
+        if (!doc) return false;
+        // "Spustit kontrolu" button
+        for (const btn of doc.querySelectorAll('button, .btn-default, .btn')) {
+            if (btn.textContent && btn.textContent.includes('Spustit kontrolu') && !btn.dataset.ghostProcessed) {
+                btn.dataset.ghostProcessed = 'true';
+                setTimeout(() => humanClick(btn), getRandomDelay(1200, 2800));
+                return true;
+            }
+        }
+        // hCaptcha checkbox
+        const hCheck = doc.getElementById('checkbox');
+        if (hCheck) {
+            if (hCheck.getAttribute('aria-checked') === 'true') {
+                // Solved — broadcast refresh
+                if (!sessionStorage.getItem('captcha_refresh_done')) {
+                    sessionStorage.setItem('captcha_refresh_done', 'true');
+                    updateLog("✅ Captcha solved! Reloading...", true);
+                    localStorage.setItem(REFRESH_KEY, Date.now().toString());
+                    setTimeout(() => window.location.reload(), getRandomDelay(1000, 2500));
+                }
+                return true;
+            }
+            if (!hCheck.dataset.ghostProcessed) {
+                hCheck.dataset.ghostProcessed = 'true';
+                setTimeout(() => humanClick(hCheck), getRandomDelay(2000, 5000));
+                return true;
+            }
+        }
+        return false;
+    };
+
+    const isCaptchaVisible = () => {
+        // Check main document
+        if ($('.captcha, #captcha, [class*="captcha"], [id*="captcha"]').filter(':visible').length > 0) return true;
+        // Check for "Spustit kontrolu" button
+        for (const btn of document.querySelectorAll('button, .btn-default, .btn')) {
+            if (btn.textContent && btn.textContent.includes('Spustit kontrolu')) return true;
+        }
+        // Check iframes
+        for (const f of document.querySelectorAll('iframe')) {
+            try {
+                if (f.contentWindow && f.contentWindow.document) {
+                    const doc = f.contentWindow.document;
+                    if (doc.getElementById('checkbox') || doc.querySelector('[class*="captcha"]')) return true;
+                }
+            } catch(e) {}
+        }
+        return false;
+    };
+
+    // Returns true if captcha was found (solver activated), false if clear
+    async function detectAndSolveCaptcha() {
+        if (!isCaptchaVisible()) return false;
+
+        const capMsg = '🔒 CAPTCHA detected! Ghost Mode solver activated.';
+        updateLog(capMsg, true);
+        await sendDiscord(capMsg);
+        browserNotify('TheBrain ⚠️ CAPTCHA', 'Captcha detected — Ghost Mode solver running!');
+        $('#logger-status').text("CAPTCHA").css('color', '#ff0000');
+        $('#setup-wait-bar').hide();
+        if (setupCountdownInterval) { clearInterval(setupCountdownInterval); setupCountdownInterval = null; }
+
+        // Clear stale session flag so solver can broadcast refresh
+        sessionStorage.removeItem('captcha_refresh_done');
+
+        // Start continuous solver scanner
+        const scanInterval = setInterval(() => {
+            solveCaptchaDoc(document);
+            document.querySelectorAll('iframe').forEach(f => {
+                try {
+                    if (f.contentWindow && f.contentWindow.document) solveCaptchaDoc(f.contentWindow.document);
+                } catch(e) {}
+            });
+        }, getRandomDelay(4500, 7500));
+
+        // Listen for refresh signal from Ghost Mode (cross-tab or same-tab)
+        window.addEventListener('storage', function onRefresh(event) {
+            if (event.key === REFRESH_KEY) {
+                clearInterval(scanInterval);
+                window.removeEventListener('storage', onRefresh);
+                updateLog("🔄 Refresh signal received — reloading page...", true);
+                setTimeout(() => window.location.reload(), getRandomDelay(800, 3000));
+            }
+        });
+
+        return true;
+    }
+
     // --- MAIN ACTION ---
     async function startAction() {
         if (isProcessing || isPaused) return;
@@ -496,6 +608,14 @@
 
             $('#logger-status').text("ACTIVE").css('color', '#00ff00');
 
+            // --- CAPTCHA DETECTION & AUTO-SOLVE ---
+            if (await detectAndSolveCaptcha()) {
+                // Captcha was found — solver ran, wait for page reload signal
+                // startAction will be re-triggered by heartbeat after reload
+                isProcessing = false;
+                return;
+            }
+
             // Count units BEFORE ASS sends (right-to-left per ASS logic)
             let unitsSent = 0;
             $('.unitsInput').each(function() { unitsSent += parseInt($(this).val()) || 0; });
@@ -526,7 +646,6 @@
 
             const msg = `✅ Run #${stats.totalRuns} done. Sent: ${unitsSent} units. +${gained.wood}🪵 +${gained.stone}🪨 +${gained.iron}⚙️`;
             updateLog(msg, true);
-            browserNotify('TheBrain 🧠', `Run complete! ${unitsSent} units sent.`);
 
             await sleep(10000);
             calculateNextRun();
@@ -568,10 +687,20 @@
     }
 
     // --- HEARTBEAT ---
+    let captchaWatching = false;
     function startHeartbeat() {
         calculateNextRun();
-        setInterval(() => {
+        setInterval(async () => {
             if (isPaused || isProcessing) return;
+
+            // Passive captcha watcher — catches captcha that appears during SLEEPING
+            if (!captchaWatching && isCaptchaVisible()) {
+                captchaWatching = true;
+                await detectAndSolveCaptcha();
+                captchaWatching = false;
+                return;
+            }
+
             const remaining = nextRunTime - Date.now();
             if (remaining <= 0) {
                 $('#logger-timer').text("READY");
