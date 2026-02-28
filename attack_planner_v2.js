@@ -1,7 +1,7 @@
 // ==UserScript==
-// @name                 Advanced Command Scheduler - Ghost Mode v2
-// @version              0.30
-// @description          Server Time Sync Display with 12h/24h format toggle, tooltips, attack history, and Blood-Red Style.
+// @name                 Advanced Command Scheduler - Ghost Mode v3
+// @version              0.31
+// @description          Server Time Sync with 12h/24h toggle, custom datetime display, attack history, tooltips.
 // @author               TheBrain🧠
 // @include              https://**.tribalwars.*/game.php?**&screen=place*&try=confirm*
 // ==/UserScript==
@@ -30,6 +30,8 @@
         countdownInterval: null,
         use12h: false,
         sendTimestamp: null,
+        // Internal stored datetime always as Date object
+        _selectedDate: null,
 
         init: function () {
             if ($('#ACSMainContainer').length > 0 || this.initialized) return;
@@ -38,123 +40,143 @@
             const formTable = $('#command-data-form').find('tbody')[0];
             if (!formTable) return;
 
-            // Load 12h preference
             this.use12h = localStorage.getItem('ACS.use12h') === 'true';
 
             $(formTable).append(
                 `<tr class="acs-row-blood">
                     <td colspan="2" style="padding: 0;">
-                        <button type="button" id="ACSToggleBtn" class="btn btn-blood" 
-                            style="width:100%; box-sizing: border-box; display: block; margin: 0;"
-                            title="Otevře/zavře pokročilý plánovač útoků Ghost Mode">
+
+                        <button type="button" id="ACSToggleBtn" class="btn btn-blood"
+                            style="width:100%; box-sizing:border-box; display:block; margin:0;"
+                            title="Open or close the Ghost Mode attack scheduler panel">
                             Open Attack Planner
                         </button>
 
-                        <div id="ACSMainContainer" style="display:none; border-top: 1px solid #4a0000; box-sizing: border-box; background: rgba(43, 0, 0, 0.1);">
-                            <div style="padding: 10px 0;">
-                                <table style="width:100%; border-spacing: 0 5px; border-collapse: separate;">
+                        <div id="ACSMainContainer" style="display:none; border-top:1px solid #4a0000; box-sizing:border-box; background:rgba(43,0,0,0.1);">
+                            <div style="padding:10px 0;">
+                                <table style="width:100%; border-spacing:0 5px; border-collapse:separate;">
 
-                                    <!-- Time format toggle row -->
+                                    <!-- Time format toggle -->
                                     <tr>
-                                        <td style="color: #ff4d4d; font-weight: bold; width: 35%; padding-left: 5px;" 
-                                            title="Přepíná zobrazení času mezi 12h (AM/PM – obvyklé v USA) a 24h formátem (obvyklé v Evropě)">
+                                        <td style="color:#ff4d4d; font-weight:bold; width:35%; padding-left:5px;"
+                                            title="Switch the time display format between 24h (European standard) and 12h AM/PM (US/UK standard)">
                                             Time Format:
                                         </td>
-                                        <td style="padding-right: 5px;">
-                                            <div style="display: flex; align-items: center; gap: 8px;">
-                                                <span id="ACSFormat24Label" style="color: #ff4d4d; font-weight: bold; font-size: 9pt;">24h</span>
-                                                <label class="acs-toggle-switch" title="Přepnout mezi 24h (evropský standard) a 12h AM/PM (americký standard) formátem">
-                                                    <input type="checkbox" id="ACSFormatToggle" ${this.use12h ? 'checked' : ''}>
+                                        <td style="padding-right:5px;">
+                                            <div style="display:flex; align-items:center; gap:8px;">
+                                                <span id="ACSFormat24Label" style="color:#ff4d4d; font-weight:bold; font-size:9pt;"
+                                                    title="24-hour format — common in Europe, Asia, and most of the world">24h</span>
+                                                <label class="acs-toggle-switch"
+                                                    title="Toggle between 24h (e.g. 22:30) and 12h AM/PM (e.g. 10:30 PM) time format">
+                                                    <input type="checkbox" id="ACSFormatToggle">
                                                     <span class="acs-toggle-slider"></span>
                                                 </label>
-                                                <span id="ACSFormat12Label" style="color: #ff4d4d; font-weight: bold; font-size: 9pt;">12h (AM/PM)</span>
+                                                <span id="ACSFormat12Label" style="color:#ff4d4d; font-weight:bold; font-size:9pt;"
+                                                    title="12-hour AM/PM format — common in the USA, Canada, and Australia">12h (AM/PM)</span>
                                             </div>
                                         </td>
                                     </tr>
 
-                                    <!-- Target arrival -->
+                                    <!-- Target arrival – custom display + hidden native picker -->
                                     <tr>
-                                        <td style="color: #ff4d4d; font-weight: bold; padding-left: 5px;" 
-                                            title="Čas, kdy má útok DORAZIT do cílové vesnice. Script automaticky odečte dobu cestování vojsk.">
+                                        <td style="color:#ff4d4d; font-weight:bold; padding-left:5px;"
+                                            title="The time when the attack should ARRIVE at the target village. Travel time is automatically subtracted.">
                                             Target Arrival:
                                         </td>
-                                        <td style="padding-right: 5px;">
-                                            <div style="display: flex; gap: 5px; width: 100%;">
-                                                <input type="datetime-local" id="ACStime" step=".001" class="blood-input" 
-                                                    style="flex: 1; min-width: 0;"
-                                                    title="Zadej přesný datum a čas, kdy chceš aby útok dorazil do cíle">
+                                        <td style="padding-right:5px;">
+                                            <div style="display:flex; gap:5px; width:100%; position:relative;">
+                                                <!-- Custom styled display (read-only, reflects 12h/24h) -->
+                                                <div id="ACSTimeDisplay" class="blood-input acs-time-display"
+                                                    style="flex:1; min-width:0; cursor:pointer; user-select:none; display:flex; align-items:center;"
+                                                    title="Click SET DAY &amp; TIME to change the target arrival date and time">
+                                                    <span id="ACSTimeText" style="flex:1;">--/--/---- --:--:--.---</span>
+                                                </div>
+                                                <!-- Hidden native datetime-local input (used only for picking) -->
+                                                <input type="datetime-local" id="ACStime" step=".001"
+                                                    style="position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; top:0; left:0;"
+                                                    tabindex="-1">
                                                 <button type="button" id="ACSSetTimeBtn" class="btn btn-blood-bright"
-                                                    title="Otevře výběr datumu a času v prohlížeči">
+                                                    title="Open the browser date/time picker to set the target arrival time">
                                                     SET DAY &amp; TIME
                                                 </button>
                                             </div>
-                                            <!-- Quick time offset buttons -->
-                                            <div style="display:flex; gap:4px; margin-top: 4px;" id="ACSQuickButtons">
-                                                <button type="button" class="acs-quick-btn" data-offset="3600" title="Přidat 1 hodinu k cílovému času">+1h</button>
-                                                <button type="button" class="acs-quick-btn" data-offset="21600" title="Přidat 6 hodin k cílovému času">+6h</button>
-                                                <button type="button" class="acs-quick-btn" data-offset="43200" title="Přidat 12 hodin k cílovému času">+12h</button>
-                                                <button type="button" class="acs-quick-btn" data-offset="86400" title="Přidat 1 den k cílovému času">+1d</button>
-                                                <button type="button" class="acs-quick-btn" data-offset="-3600" title="Odebrat 1 hodinu z cílového času" style="color:#ff8080;">-1h</button>
+                                            <!-- Quick offset buttons -->
+                                            <div style="display:flex; gap:4px; margin-top:4px;" id="ACSQuickButtons">
+                                                <button type="button" class="acs-quick-btn" data-offset="3600"
+                                                    title="Add 1 hour to the current target arrival time">+1h</button>
+                                                <button type="button" class="acs-quick-btn" data-offset="21600"
+                                                    title="Add 6 hours to the current target arrival time">+6h</button>
+                                                <button type="button" class="acs-quick-btn" data-offset="43200"
+                                                    title="Add 12 hours to the current target arrival time">+12h</button>
+                                                <button type="button" class="acs-quick-btn" data-offset="86400"
+                                                    title="Add 1 day to the current target arrival time">+1d</button>
+                                                <button type="button" class="acs-quick-btn" data-offset="-3600"
+                                                    title="Subtract 1 hour from the current target arrival time" style="color:#ff8080;">-1h</button>
                                             </div>
                                         </td>
                                     </tr>
 
-                                    <!-- Network delay -->
+                                    <!-- Network correction -->
                                     <tr>
-                                        <td style="color: #ff4d4d; font-weight: bold; padding-left: 5px;" 
-                                            title="Kompenzace síťového zpoždění v milisekundách. Vyšší číslo = příkaz se odešle dříve. Doporučeno: 20-50ms pro rychlé připojení, 50-100ms pro pomalejší.">
+                                        <td style="color:#ff4d4d; font-weight:bold; padding-left:5px;"
+                                            title="Network latency compensation in milliseconds. Higher value = command sent earlier. Recommended: 20–50ms for fast connections, 50–100ms for slower ones.">
                                             Network Correction:
                                         </td>
-                                        <td style="padding-right: 5px;">
-                                            <input type="number" id="ACSInternetDelay" class="blood-input" 
-                                                style="width: 100%; box-sizing: border-box;"
-                                                title="Síťová latence v ms. Ping zjistíš například na fast.com nebo speedtest.net">
+                                        <td style="padding-right:5px;">
+                                            <input type="number" id="ACSInternetDelay" class="blood-input"
+                                                style="width:100%; box-sizing:border-box;"
+                                                title="Your network ping in ms. You can check it at fast.com or speedtest.net">
                                         </td>
                                     </tr>
 
                                 </table>
                             </div>
 
-                            <!-- Warning display -->
-                            <div id="ACSWarning" style="display:none; margin: 0 5px 5px 5px; padding: 5px 8px; background: #3a2000; border: 1px solid #ff8800; color: #ffaa00; font-size: 8pt; border-radius: 2px;"></div>
+                            <!-- Validation warning -->
+                            <div id="ACSWarning" style="display:none; margin:0 5px 5px 5px; padding:5px 8px; background:#3a2000; border:1px solid #ff8800; color:#ffaa00; font-size:8pt; border-radius:2px;"></div>
 
-                            <button type="button" id="ACSbutton" class="btn btn-blood" 
-                                style="width:100%; box-sizing: border-box; display: block; margin: 0;"
-                                title="Aktivuje Ghost Mode – script automaticky odešle útok ve správný čas, i když je záložka na pozadí">
+                            <button type="button" id="ACSbutton" class="btn btn-blood"
+                                style="width:100%; box-sizing:border-box; display:block; margin:0;"
+                                title="Activate Ghost Mode — the script will automatically send the attack at the correct time, even if the tab is in the background">
                                 Confirm Ghost Mode
                             </button>
 
-                            <div id="ACSCountdownContainer" style="display:none; box-sizing: border-box; border-top: 1px dashed #ff0000; border-bottom: 1px dashed #ff0000; background: #1a0000; width: 100%;">
-                                <div style="padding: 10px;">
-                                    <div id="ACSCountdown" style="color: #ff0000; font-family: monospace; font-size: 14pt; font-weight: bold; text-align: center;" 
-                                        title="Odpočet do okamžiku odeslání útoku (čas odeslání = čas příchodu − doba cestování)">
+                            <!-- Countdown -->
+                            <div id="ACSCountdownContainer" style="display:none; box-sizing:border-box; border-top:1px dashed #ff0000; border-bottom:1px dashed #ff0000; background:#1a0000; width:100%;">
+                                <div style="padding:10px;">
+                                    <div id="ACSCountdown"
+                                        style="color:#ff0000; font-family:monospace; font-size:14pt; font-weight:bold; text-align:center;"
+                                        title="Countdown to the moment the attack is sent (send time = arrival time minus travel duration)">
                                         00:00:00.000
                                     </div>
-                                    <div id="ACSTargetDisplay" style="color: #8a0303; font-size: 8pt; text-align: center; margin-top: 3px;" 
-                                        title="Přesný serverový čas odeslání útoku">
+                                    <div id="ACSTargetDisplay"
+                                        style="color:#8a0303; font-size:8pt; text-align:center; margin-top:3px;"
+                                        title="Exact server time at which the attack command will be dispatched">
                                         Sending at: --:--:-- (Server Time)
                                     </div>
-                                    <div id="ACSSendAccuracy" style="display:none; color: #ffcc00; font-size: 8pt; text-align: center; margin-top: 3px;"
-                                        title="Přesnost odeslání v milisekundách oproti ideálnímu cílovému času">
+                                    <div id="ACSSendAccuracy" style="display:none; color:#ffcc00; font-size:8pt; text-align:center; margin-top:3px;"
+                                        title="Measured send precision in milliseconds relative to the ideal target time. Green = excellent, yellow = good, red = late.">
                                     </div>
                                 </div>
                             </div>
 
                             <!-- Attack History -->
-                            <div id="ACSHistoryContainer" style="display:none; border-top: 1px dashed #4a0000; padding: 5px;">
-                                <div style="color: #8a0303; font-size: 8pt; font-weight: bold; margin-bottom: 3px;" 
-                                    title="Posledních ${maxHistoryEntries} odeslaných útoků z tohoto scriptu">
+                            <div id="ACSHistoryContainer" style="display:none; border-top:1px dashed #4a0000; padding:5px;">
+                                <div style="color:#8a0303; font-size:8pt; font-weight:bold; margin-bottom:3px;"
+                                    title="Last ${maxHistoryEntries} attacks sent via this script. Color: green = &lt;10ms accuracy, yellow = &lt;50ms, red = late.">
                                     📋 Attack History:
                                 </div>
-                                <div id="ACSHistoryList" style="font-size: 7.5pt; font-family: monospace; color: #cc3333; max-height: 80px; overflow-y: auto;"></div>
+                                <div id="ACSHistoryList" style="font-size:7.5pt; font-family:monospace; color:#cc3333; max-height:80px; overflow-y:auto;"></div>
                             </div>
 
-                            <div style="padding: 5px 5px 10px 0; font-size: 9pt; color: #8a0303; text-align: right; font-weight: bold; text-shadow: 1px 1px 1px #000;">
+                            <div id="ACSPoweredBy"
+                                style="padding:5px 5px 10px 0; font-size:9pt; color:#8a0303; text-align:right; font-weight:bold; text-shadow:1px 1px 1px #000; cursor:help;"
+                                title="B4LD PH4NT0M">
                                 Powered by TheBrain 🧠
                             </div>
                         </div>
                     </td>
-                 </tr>`
+                </tr>`
             );
 
             this.confirmButton = $('#troop_confirm_submit');
@@ -163,13 +185,19 @@
             this.internetDelay = localStorage.getItem('ACS.internetDelay') || defaultInternetDelay;
 
             $('#ACSInternetDelay').val(this.internetDelay);
+
+            // Set default selected date to now + 10s
             let d = new Date(Timing.getCurrentServerTime());
             d.setSeconds(d.getSeconds() + 10);
-            $('#ACStime').val(this.convertToInput(d));
+            this._setSelectedDate(d);
+
+            // Apply saved 12h toggle state AFTER the checkbox exists in DOM
+            $('#ACSFormatToggle').prop('checked', this.use12h);
+            this.updateFormatLabels();
+            this.renderTimeDisplay();
 
             this.preventVisibilityDetection();
             this.renderHistory();
-            this.updateFormatLabels();
 
             // ---- Event Bindings ----
 
@@ -177,10 +205,24 @@
                 this.use12h = $('#ACSFormatToggle').is(':checked');
                 localStorage.setItem('ACS.use12h', this.use12h);
                 this.updateFormatLabels();
+                this.renderTimeDisplay();
+                this.renderHistory(); // re-render history with new format
             });
 
             $('#ACSSetTimeBtn').click(() => {
+                // Sync hidden input to current selection, then trigger picker
+                const tzoffset = this._selectedDate.getTimezoneOffset() * 60000;
+                $('#ACStime').val((new Date(this._selectedDate - tzoffset)).toISOString().slice(0, 23));
                 document.getElementById('ACStime').showPicker();
+            });
+
+            $('#ACStime').on('change', () => {
+                const val = $('#ACStime').val();
+                if (!val) return;
+                const parsed = new Date(val.replace('T', ' '));
+                if (!isNaN(parsed.getTime())) {
+                    this._setSelectedDate(parsed);
+                }
             });
 
             $('#ACSToggleBtn').click(() => {
@@ -192,21 +234,49 @@
             // Quick offset buttons
             $(document).on('click', '.acs-quick-btn', (e) => {
                 const offset = parseInt($(e.target).data('offset'));
-                const currentVal = $('#ACStime').val();
-                if (!currentVal) return;
-                const d = new Date(currentVal.replace('T', ' '));
-                d.setSeconds(d.getSeconds() + offset);
-                const tzoffset = d.getTimezoneOffset() * 60000;
-                $('#ACStime').val((new Date(d - tzoffset)).toISOString().slice(0, -1));
+                if (!this._selectedDate) return;
+                const newDate = new Date(this._selectedDate.getTime() + offset * 1000);
+                this._setSelectedDate(newDate);
             });
-
-            // Validate on time change
-            $('#ACStime').on('change input', () => this.validateTime());
 
             $('#ACSbutton').click((e) => {
                 e.preventDefault();
                 this.executeLogic();
             });
+        },
+
+        // Internal: set selected date, update display & validate
+        _setSelectedDate: function(date) {
+            this._selectedDate = date;
+            this.renderTimeDisplay();
+            this.validateTime();
+        },
+
+        renderTimeDisplay: function() {
+            if (!this._selectedDate) return;
+            const d = this._selectedDate;
+            const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+            const timeStr = this.formatTimeOnly(d);
+            const msStr = String(d.getMilliseconds()).padStart(3,'0');
+            $('#ACSTimeText').text(`${dateStr} ${timeStr}.${msStr}`);
+        },
+
+        // Format just the HH:MM:SS part (no ms) respecting 12h/24h
+        formatTimeOnly: function(date) {
+            if (this.use12h) {
+                let hours = date.getHours();
+                const ampm = hours >= 12 ? 'PM' : 'AM';
+                hours = hours % 12 || 12;
+                return `${String(hours).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}:${String(date.getSeconds()).padStart(2,'0')} ${ampm}`;
+            } else {
+                return `${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}:${String(date.getSeconds()).padStart(2,'0')}`;
+            }
+        },
+
+        // Full time string including ms
+        formatServerTime: function(date) {
+            const ms = String(date.getMilliseconds()).padStart(3,'0');
+            return `${this.formatTimeOnly(date)}.${ms}`;
         },
 
         updateFormatLabels: function() {
@@ -219,30 +289,20 @@
             }
         },
 
-        formatServerTime: function(date) {
-            if (this.use12h) {
-                let hours = date.getHours();
-                const ampm = hours >= 12 ? 'PM' : 'AM';
-                hours = hours % 12 || 12;
-                return `${String(hours).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}.${String(date.getMilliseconds()).padStart(3, '0')} ${ampm}`;
-            } else {
-                return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}.${String(date.getMilliseconds()).padStart(3, '0')}`;
-            }
-        },
-
         validateTime: function() {
-            const attackTime = this.getAttackTime();
-            if (isNaN(attackTime.getTime())) return;
+            if (!this._selectedDate) return;
+            const attackTime = this._getAttackTimeFromSelected();
+            if (!attackTime || isNaN(attackTime.getTime())) return;
             const now = Timing.getCurrentServerTime();
             const diff = attackTime - now;
             const warning = $('#ACSWarning');
 
             if (diff < 0) {
-                warning.text('⚠️ Čas odeslání je v minulosti! Uprav cílový čas příchodu.').show();
+                warning.text('⚠️ Send time is in the past! Adjust the target arrival time.').show();
             } else if (diff < 5000) {
-                warning.text('⚠️ Zbývá méně než 5 sekund – příliš brzy na bezpečné odeslání!').show();
+                warning.text('⚠️ Less than 5 seconds remaining — too close to send safely!').show();
             } else if (diff > 86400000 * 7) {
-                warning.text('ℹ️ Čas je více než 7 dní dopředu – zkontroluj datum.').show();
+                warning.text('ℹ️ Target time is more than 7 days ahead — please verify the date.').show();
             } else {
                 warning.hide();
             }
@@ -256,13 +316,12 @@
         },
 
         executeLogic: function () {
-            const attackTime = this.getAttackTime();
-            if (isNaN(attackTime.getTime())) return;
+            const attackTime = this._getAttackTimeFromSelected();
+            if (!attackTime || isNaN(attackTime.getTime())) return;
 
-            // Validate before proceeding
             const now = Timing.getCurrentServerTime();
             if (attackTime - now < 5000) {
-                alert('Čas odeslání je příliš blízko nebo v minulosti!');
+                alert('Send time is too close or already in the past!');
                 return;
             }
 
@@ -274,15 +333,11 @@
 
             this.confirmButton.addClass('btn-disabled');
             $('#ACSbutton').text('GHOST ACTIVE').addClass('btn-active-blood').prop('disabled', true);
-
             $('#ACSCountdownContainer').show();
             $('#ACSSendAccuracy').hide();
 
             const serverDate = new Date(attackTime.getTime());
-            const dateStr = serverDate.getFullYear() + '-' +
-                           String(serverDate.getMonth() + 1).padStart(2, '0') + '-' +
-                           String(serverDate.getDate()).padStart(2, '0');
-
+            const dateStr = `${serverDate.getFullYear()}-${String(serverDate.getMonth()+1).padStart(2,'0')}-${String(serverDate.getDate()).padStart(2,'0')}`;
             $('#ACSTargetDisplay').text(`Sending at: ${dateStr} ${this.formatServerTime(serverDate)} (Server Time)`);
 
             this.sendTimestamp = attackTime.getTime();
@@ -310,13 +365,13 @@
                     return;
                 }
 
-                const hours = Math.floor(diff / 3600000);
+                const hours   = Math.floor(diff / 3600000);
                 const minutes = Math.floor((diff % 3600000) / 60000);
                 const seconds = Math.floor((diff % 60000) / 1000);
-                const ms = Math.floor(diff % 1000);
+                const ms      = Math.floor(diff % 1000);
 
                 $('#ACSCountdown').text(
-                    `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(ms).padStart(3, '0')}`
+                    `${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}.${String(ms).padStart(3,'0')}`
                 );
             }, 50);
         },
@@ -330,7 +385,7 @@
         },
 
         startLoop: function (attackTime, delay) {
-            const targetMs = attackTime.getMilliseconds();
+            const targetMs  = attackTime.getMilliseconds();
             const targetSec = attackTime.getSeconds();
 
             const blob = new Blob([`setInterval(() => postMessage(''), ${0.7 + Math.random() * 0.5});`]);
@@ -349,13 +404,12 @@
                         worker.terminate();
                         clearInterval(this.countdownInterval);
 
-                        // Show send accuracy
                         const accuracyMs = actualSendTime - this.sendTimestamp;
                         const sign = accuracyMs >= 0 ? '+' : '';
-                        $('#ACSSendAccuracy').text(`Přesnost odeslání: ${sign}${accuracyMs}ms`).show();
+                        $('#ACSSendAccuracy').text(`Send accuracy: ${sign}${accuracyMs}ms`).show();
 
-                        // Save to history
-                        this.saveHistory(new Date(attackTime.getTime()), accuracyMs);
+                        // Save to history using _selectedDate (arrival time, not send time)
+                        this.saveHistory(new Date(this._selectedDate.getTime()), accuracyMs);
                     }
                 }
             };
@@ -369,22 +423,19 @@
             $('#ACSCountdown').text("!BAZINGA!").addClass('bazinga-final');
         },
 
-        getAttackTime: function () {
-            const val = $('#ACStime').val().replace('T', ' ');
-            const d = new Date(val);
-            d.setHours(d.getHours() - (this.duration[0] || 0));
+        // Compute send time from _selectedDate by subtracting travel duration
+        _getAttackTimeFromSelected: function () {
+            if (!this._selectedDate) return null;
+            const d = new Date(this._selectedDate.getTime());
+            d.setHours(d.getHours()   - (this.duration[0] || 0));
             d.setMinutes(d.getMinutes() - (this.duration[1] || 0));
             d.setSeconds(d.getSeconds() - (this.duration[2] || 0));
             return d;
         },
 
-        convertToInput: function (t) {
-            const displayDate = new Date(t.getTime());
-            displayDate.setHours(displayDate.getHours() + (this.duration[0] || 0));
-            displayDate.setMinutes(displayDate.getMinutes() + (this.duration[1] || 0));
-            displayDate.setSeconds(displayDate.getSeconds() + (this.duration[2] || 0));
-            const tzoffset = displayDate.getTimezoneOffset() * 60000;
-            return (new Date(displayDate - tzoffset)).toISOString().slice(0, -1);
+        // Legacy alias kept for compatibility
+        getAttackTime: function () {
+            return this._getAttackTimeFromSelected();
         },
 
         saveHistory: function(arrivalDate, accuracyMs) {
@@ -410,20 +461,20 @@
 
             history.forEach((entry, i) => {
                 const d = new Date(entry.arrival);
-                const dateStr = `${String(d.getDate()).padStart(2,'0')}.${String(d.getMonth()+1).padStart(2,'0')} ${this.formatServerTime(d)}`;
-                const color = entry.accuracy.includes('-') ? '#ff8888' :
-                              parseInt(entry.accuracy) <= 10 ? '#88ff88' : '#ffcc44';
-                list.append(`<div style="color:${color}; border-bottom: 1px solid #2a0000; padding: 1px 0;" 
-                    title="Útok č.${i+1}: Cílový příchod ${dateStr}, přesnost odeslání ${entry.accuracy}">
+                const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')} ${this.formatServerTime(d)}`;
+                const accVal = parseInt(entry.accuracy);
+                const color = accVal < 0 ? '#ff8888' : accVal <= 10 ? '#88ff88' : '#ffcc44';
+                list.append(`<div style="color:${color}; border-bottom:1px solid #2a0000; padding:1px 0;"
+                    title="Attack #${i+1}: Target arrival ${dateStr} | Send accuracy ${entry.accuracy} (green &lt;10ms, yellow &lt;50ms, red = late)">
                     #${i+1} → ${dateStr} <span style="color:${color}">(${entry.accuracy})</span>
                 </div>`);
             });
         },
 
         addGlobalStyle: function (css) {
-            var head = document.getElementsByTagName('head')[0];
+            const head = document.getElementsByTagName('head')[0];
             if (!head) return;
-            var style = document.createElement('style');
+            const style = document.createElement('style');
             style.type = 'text/css';
             style.innerHTML = css;
             head.appendChild(style);
@@ -431,12 +482,37 @@
     };
 
     CommandSender.addGlobalStyle(`
-        .blood-input { background: #2b0000 !important; color: #ff4d4d !important; border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px; }
-        .btn-blood { background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important; color: white !important; border: 1px solid #330000 !important; cursor: pointer; padding: 6px 12px; font-weight: bold; border-radius: 0; }
-        .btn-blood-bright { background: #ff0000 !important; color: white !important; border: 1px solid #ffffff !important; cursor: pointer; padding: 4px 8px; font-weight: bold; border-radius: 3px; white-space: nowrap; font-size: 8pt; }
-        .btn-blood:hover, .btn-blood-bright:hover { background: #660000 !important; box-shadow: 0 0 5px #ff0000; }
-        .btn-active-blood { background: #1a0000 !important; color: #8a0303 !important; border: 1px solid #4a0000 !important; }
-        .bazinga-final { color: #ccff00 !important; animation: bazinga-blink 0.4s infinite alternate; text-shadow: 0 0 10px #99ff00; }
+        .blood-input {
+            background: #2b0000 !important; color: #ff4d4d !important;
+            border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px;
+        }
+        .acs-time-display {
+            padding: 3px 5px; font-family: monospace; font-size: 9pt;
+            min-height: 22px; box-sizing: border-box;
+        }
+        .btn-blood {
+            background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important;
+            color: white !important; border: 1px solid #330000 !important;
+            cursor: pointer; padding: 6px 12px; font-weight: bold; border-radius: 0;
+        }
+        .btn-blood-bright {
+            background: #ff0000 !important; color: white !important;
+            border: 1px solid #ffffff !important; cursor: pointer;
+            padding: 4px 8px; font-weight: bold; border-radius: 3px;
+            white-space: nowrap; font-size: 8pt;
+        }
+        .btn-blood:hover, .btn-blood-bright:hover {
+            background: #660000 !important; box-shadow: 0 0 5px #ff0000;
+        }
+        .btn-active-blood {
+            background: #1a0000 !important; color: #8a0303 !important;
+            border: 1px solid #4a0000 !important;
+        }
+        .bazinga-final {
+            color: #ccff00 !important;
+            animation: bazinga-blink 0.4s infinite alternate;
+            text-shadow: 0 0 10px #99ff00;
+        }
         @keyframes bazinga-blink { from { color: #ccff00; } to { color: #ffff00; } }
 
         /* Quick offset buttons */
@@ -448,7 +524,10 @@
         .acs-quick-btn:hover { background: #4a0000; box-shadow: 0 0 4px #ff0000; }
 
         /* Toggle switch */
-        .acs-toggle-switch { position: relative; display: inline-block; width: 36px; height: 18px; cursor: pointer; }
+        .acs-toggle-switch {
+            position: relative; display: inline-block;
+            width: 36px; height: 18px; cursor: pointer;
+        }
         .acs-toggle-switch input { opacity: 0; width: 0; height: 0; }
         .acs-toggle-slider {
             position: absolute; inset: 0;
@@ -463,13 +542,13 @@
         }
         .acs-toggle-switch input:checked + .acs-toggle-slider { background: #3a0000; }
         .acs-toggle-switch input:checked + .acs-toggle-slider::before {
-            transform: translateX(18px);
-            background: #ff4d4d;
+            transform: translateX(18px); background: #ff4d4d;
         }
 
-        /* Native title tooltips – enhanced via CSS for browsers that support it */
+        /* Tooltip cursor hints */
         [title] { cursor: help; }
-        button[title], input[title] { cursor: pointer; }
+        button[title], .acs-quick-btn { cursor: pointer; }
+        #ACSPoweredBy { cursor: help; }
     `);
 
     const _initCheck = setInterval(() => {
