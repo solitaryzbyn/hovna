@@ -80,7 +80,7 @@
                                     <!-- Target arrival – editable text input + hidden native picker -->
                                     <tr>
                                         <td style="color:#ff4d4d; font-weight:bold; padding-left:5px;"
-                                            title="The time when the attack should ARRIVE at the target village. Travel time is automatically subtracted.">
+                                            title="To change the time manually, type in the field and confirm with ENTER — otherwise the new time will NOT be applied.">
                                             Target Arrival:
                                         </td>
                                         <td style="padding-right:5px;">
@@ -89,7 +89,7 @@
                                                 <input type="text" id="ACSTimeText" class="blood-input acs-time-editable"
                                                     placeholder="DD/MM/YYYY HH:MM:SS.mmm"
                                                     spellcheck="false" autocomplete="off"
-                                                    style="flex:1; min-width:0; font-family:monospace; font-size:9pt; box-sizing:border-box;"
+                                                    style="flex:1; min-width:170px; width:100%; font-family:monospace; font-size:9pt; box-sizing:border-box;"
                                                     title="Type the target arrival date/time directly. Format: DD/MM/YYYY HH:MM:SS.mmm (24h) or DD/MM/YYYY HH:MM:SS.mmm AM/PM (12h). Press Enter or click outside to confirm.">
                                                 <!-- Hidden native datetime-local input (used only for picker) -->
                                                 <input type="datetime-local" id="ACStime" step=".001"
@@ -166,7 +166,7 @@
                                     title="Last ${maxHistoryEntries} attacks sent via this script. Color: green = &lt;10ms accuracy, yellow = &lt;50ms, red = late.">
                                     📋 Attack History:
                                 </div>
-                                <div id="ACSHistoryList" style="font-size:7.5pt; font-family:monospace; color:#cc3333; max-height:80px; overflow-y:auto;"></div>
+                                <div id="ACSHistoryList" style="font-size:7.5pt; font-family:monospace; color:#cc3333; max-height:80px; overflow-y:auto; background:#0d0000; border:1px solid #2a0000; border-radius:2px; padding:2px 4px;"></div>
                             </div>
 
                             <div id="ACSPoweredBy"
@@ -543,9 +543,9 @@
         }
         .acs-time-editable {
             padding: 3px 5px; font-family: monospace; font-size: 9pt;
-            min-height: 22px; box-sizing: border-box;
+            min-height: 22px; min-width: 170px; box-sizing: border-box;
             transition: border-color 0.2s;
-            outline: none;
+            outline: none; overflow: visible;
         }
         .acs-time-editable:focus {
             border-color: #ff4d4d !important;
