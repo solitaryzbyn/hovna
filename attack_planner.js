@@ -245,40 +245,59 @@
                 if (e.key === 'Enter') { e.preventDefault(); commitManualInput(); $('#ACSTimeText').blur(); }
             });
 
+            // Segment definitions for DD/MM/YYYY HH:MM:SS.mmm [start, end (exclusive), maxLen]
+            const ACS_SEGMENTS = [
+                [0,  2,  2],  // DD
+                [3,  5,  2],  // MM
+                [6,  10, 4],  // YYYY
+                [11, 13, 2],  // HH
+                [14, 16, 2],  // MM
+                [17, 19, 2],  // SS
+                [20, 23, 3],  // mmm
+            ];
+
+            // Helper: find which segment index the cursor pos falls in
+            const getSegmentAt = (pos) => {
+                for (let i = 0; i < ACS_SEGMENTS.length; i++) {
+                    const [s, e_] = ACS_SEGMENTS[i];
+                    if (pos >= s && pos <= e_) return i;
+                }
+                return -1;
+            };
+
             // Smart double-click: select only the segment under cursor
-            // Format 24h: DD/MM/YYYY HH:MM:SS.mmm   (indices: 0-1=dd, 3-4=mo, 6-9=yyyy, 11-12=hh, 14-15=mm, 17-18=ss, 20-22=ms)
-            // Format 12h: DD/MM/YYYY HH:MM:SS.mmm AM/PM  (same + trailing AM/PM)
             $('#ACSTimeText').on('dblclick', function(e) {
                 e.preventDefault();
+                const pos = this.selectionStart;
+                const idx = getSegmentAt(pos);
+                if (idx >= 0) {
+                    const [s, e_] = ACS_SEGMENTS[idx];
+                    this.setSelectionRange(s, e_);
+                } else {
+                    this.select();
+                }
+            });
+
+            // Auto-advance: after typing fills a segment, jump to next segment
+            $('#ACSTimeText').on('input', function() {
                 const input = this;
                 const pos = input.selectionStart;
                 const val = input.value;
+                const idx = getSegmentAt(pos - 1); // pos-1 because cursor is after typed char
+                if (idx < 0) return;
 
-                // Define segments as [start, end] character ranges (end exclusive)
-                // DD/MM/YYYY HH:MM:SS.mmm
-                const segments = [
-                    [0,  2],   // DD
-                    [3,  5],   // MM
-                    [6,  10],  // YYYY
-                    [11, 13],  // HH
-                    [14, 16],  // MM
-                    [17, 19],  // SS
-                    [20, 23],  // mmm
-                ];
-                // Add AM/PM segment if present (12h mode, val length > 24)
-                if (val.length > 24) {
-                    segments.push([24, val.length]); // AM or PM
-                }
+                const [segStart, segEnd, maxLen] = ACS_SEGMENTS[idx];
+                const segContent = val.slice(segStart, segEnd);
+                const typedLen = segContent.replace(/[^\d]/g, '').length;
 
-                // Find which segment the cursor is in
-                for (const [s, e_] of segments) {
-                    if (pos >= s && pos <= e_) {
-                        input.setSelectionRange(s, e_);
-                        return;
-                    }
+                // If segment is full and there's a next segment, jump to it
+                if (typedLen >= maxLen && idx < ACS_SEGMENTS.length - 1) {
+                    const [nextStart, nextEnd] = ACS_SEGMENTS[idx + 1];
+                    // Small timeout so browser finishes processing the input event first
+                    setTimeout(() => {
+                        input.setSelectionRange(nextStart, nextEnd);
+                    }, 0);
                 }
-                // Fallback: select all
-                input.select();
             });
 
             $('#ACSToggleBtn').click(() => {
