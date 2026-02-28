@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name                 Advanced Command Scheduler - Ghost Mode v3
-// @version              0.31
-// @description          Server Time Sync with 12h/24h toggle, custom datetime display, attack history, tooltips.
+// @version              0.32
+// @description          Server Time Sync with 12h/24h toggle, editable datetime input, attack history, tooltips.
 // @author               TheBrain🧠
 // @include              https://**.tribalwars.*/game.php?**&screen=place*&try=confirm*
 // ==/UserScript==
@@ -77,7 +77,7 @@
                                         </td>
                                     </tr>
 
-                                    <!-- Target arrival – custom display + hidden native picker -->
+                                    <!-- Target arrival – editable text input + hidden native picker -->
                                     <tr>
                                         <td style="color:#ff4d4d; font-weight:bold; padding-left:5px;"
                                             title="The time when the attack should ARRIVE at the target village. Travel time is automatically subtracted.">
@@ -85,13 +85,13 @@
                                         </td>
                                         <td style="padding-right:5px;">
                                             <div style="display:flex; gap:5px; width:100%; position:relative;">
-                                                <!-- Custom styled display (read-only, reflects 12h/24h) -->
-                                                <div id="ACSTimeDisplay" class="blood-input acs-time-display"
-                                                    style="flex:1; min-width:0; cursor:pointer; user-select:none; display:flex; align-items:center;"
-                                                    title="Click SET DAY &amp; TIME to change the target arrival date and time">
-                                                    <span id="ACSTimeText" style="flex:1;">--/--/---- --:--:--.---</span>
-                                                </div>
-                                                <!-- Hidden native datetime-local input (used only for picking) -->
+                                                <!-- Editable text input — reflects active 12h/24h format -->
+                                                <input type="text" id="ACSTimeText" class="blood-input acs-time-editable"
+                                                    placeholder="DD/MM/YYYY HH:MM:SS.mmm"
+                                                    spellcheck="false" autocomplete="off"
+                                                    style="flex:1; min-width:0; font-family:monospace; font-size:9pt; box-sizing:border-box;"
+                                                    title="Type the target arrival date/time directly. Format: DD/MM/YYYY HH:MM:SS.mmm (24h) or DD/MM/YYYY HH:MM:SS.mmm AM/PM (12h). Press Enter or click outside to confirm.">
+                                                <!-- Hidden native datetime-local input (used only for picker) -->
                                                 <input type="datetime-local" id="ACStime" step=".001"
                                                     style="position:absolute; opacity:0; pointer-events:none; width:1px; height:1px; top:0; left:0;"
                                                     tabindex="-1">
@@ -225,6 +225,23 @@
                 }
             });
 
+            // Manual text input — parse on Enter or blur
+            const commitManualInput = () => {
+                const raw = $('#ACSTimeText').val();
+                const parsed = this.parseManualInput(raw);
+                if (parsed) {
+                    this._setSelectedDate(parsed, true); // skipInputUpdate=true so cursor isn't lost
+                    $('#ACSTimeText').css('border-color', '');
+                } else {
+                    // Red border to indicate invalid format
+                    $('#ACSTimeText').css('border-color', '#ff0000');
+                }
+            };
+            $('#ACSTimeText').on('blur', commitManualInput);
+            $('#ACSTimeText').on('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitManualInput(); $('#ACSTimeText').blur(); }
+            });
+
             $('#ACSToggleBtn').click(() => {
                 $('#ACSMainContainer').toggle();
                 const isVisible = $('#ACSMainContainer').is(':visible');
@@ -246,9 +263,9 @@
         },
 
         // Internal: set selected date, update display & validate
-        _setSelectedDate: function(date) {
+        _setSelectedDate: function(date, skipInputUpdate) {
             this._selectedDate = date;
-            this.renderTimeDisplay();
+            if (!skipInputUpdate) this.renderTimeDisplay();
             this.validateTime();
         },
 
@@ -258,7 +275,39 @@
             const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
             const timeStr = this.formatTimeOnly(d);
             const msStr = String(d.getMilliseconds()).padStart(3,'0');
-            $('#ACSTimeText').text(`${dateStr} ${timeStr}.${msStr}`);
+            const formatted = `${dateStr} ${timeStr}.${msStr}`;
+            // Only update when not actively typing
+            if (document.activeElement !== document.getElementById('ACSTimeText')) {
+                $('#ACSTimeText').val(formatted).css('border-color', '');
+            }
+            // Update placeholder to reflect active format
+            const ph = this.use12h ? 'DD/MM/YYYY HH:MM:SS.mmm AM/PM' : 'DD/MM/YYYY HH:MM:SS.mmm';
+            $('#ACSTimeText').attr('placeholder', ph);
+        },
+
+        // Parse a manually typed datetime string — accepts both 24h and 12h formats
+        // Supported: DD/MM/YYYY HH:MM:SS.mmm  |  DD/MM/YYYY HH:MM:SS  |  DD/MM/YYYY HH:MM
+        // With optional trailing AM/PM for 12h mode
+        parseManualInput: function(raw) {
+            raw = raw.trim();
+            let ampm = null;
+            const ampmMatch = raw.match(/\s+(AM|PM)$/i);
+            if (ampmMatch) {
+                ampm = ampmMatch[1].toUpperCase();
+                raw = raw.replace(/\s+(AM|PM)$/i, '').trim();
+            }
+            const re = /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?$/;
+            const m = raw.match(re);
+            if (!m) return null;
+            let [, dd, mo, yyyy, hh, mm, ss = '0', ms = '0'] = m;
+            let hours = parseInt(hh, 10);
+            const mins  = parseInt(mm, 10);
+            const secs  = parseInt(ss, 10);
+            const msNum = parseInt(ms.padEnd(3, '0'), 10);
+            if (ampm === 'AM' && hours === 12) hours = 0;
+            else if (ampm === 'PM' && hours !== 12) hours += 12;
+            const result = new Date(parseInt(yyyy,10), parseInt(mo,10)-1, parseInt(dd,10), hours, mins, secs, msNum);
+            return isNaN(result.getTime()) ? null : result;
         },
 
         // Format just the HH:MM:SS part (no ms) respecting 12h/24h
@@ -486,9 +535,15 @@
             background: #2b0000 !important; color: #ff4d4d !important;
             border: 1px solid #8a0303 !important; font-family: Verdana,Arial; padding: 2px;
         }
-        .acs-time-display {
+        .acs-time-editable {
             padding: 3px 5px; font-family: monospace; font-size: 9pt;
             min-height: 22px; box-sizing: border-box;
+            transition: border-color 0.2s;
+            outline: none;
+        }
+        .acs-time-editable:focus {
+            border-color: #ff4d4d !important;
+            box-shadow: 0 0 4px #ff000088;
         }
         .btn-blood {
             background: linear-gradient(to bottom, #8a0303 0%, #4a0000 100%) !important;
