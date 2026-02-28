@@ -245,6 +245,42 @@
                 if (e.key === 'Enter') { e.preventDefault(); commitManualInput(); $('#ACSTimeText').blur(); }
             });
 
+            // Smart double-click: select only the segment under cursor
+            // Format 24h: DD/MM/YYYY HH:MM:SS.mmm   (indices: 0-1=dd, 3-4=mo, 6-9=yyyy, 11-12=hh, 14-15=mm, 17-18=ss, 20-22=ms)
+            // Format 12h: DD/MM/YYYY HH:MM:SS.mmm AM/PM  (same + trailing AM/PM)
+            $('#ACSTimeText').on('dblclick', function(e) {
+                e.preventDefault();
+                const input = this;
+                const pos = input.selectionStart;
+                const val = input.value;
+
+                // Define segments as [start, end] character ranges (end exclusive)
+                // DD/MM/YYYY HH:MM:SS.mmm
+                const segments = [
+                    [0,  2],   // DD
+                    [3,  5],   // MM
+                    [6,  10],  // YYYY
+                    [11, 13],  // HH
+                    [14, 16],  // MM
+                    [17, 19],  // SS
+                    [20, 23],  // mmm
+                ];
+                // Add AM/PM segment if present (12h mode, val length > 24)
+                if (val.length > 24) {
+                    segments.push([24, val.length]); // AM or PM
+                }
+
+                // Find which segment the cursor is in
+                for (const [s, e_] of segments) {
+                    if (pos >= s && pos <= e_) {
+                        input.setSelectionRange(s, e_);
+                        return;
+                    }
+                }
+                // Fallback: select all
+                input.select();
+            });
+
             $('#ACSToggleBtn').click(() => {
                 $('#ACSMainContainer').toggle();
                 const isVisible = $('#ACSMainContainer').is(':visible');
