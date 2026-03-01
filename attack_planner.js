@@ -80,7 +80,7 @@
                                     <!-- Target arrival – editable text input + hidden native picker -->
                                     <tr>
                                         <td style="color:#ff4d4d; font-weight:bold; padding-left:5px;"
-                                            title="To change the time manually, type in the field and confirm with ENTER — otherwise the new time will NOT be applied.">
+                                            title="Type directly to set arrival time — changes apply instantly as you type. Press ENTER or click away to finish editing.">
                                             Target Arrival:
                                         </td>
                                         <td style="padding-right:5px;">
@@ -130,6 +130,13 @@
                                     </tr>
 
                                 </table>
+                            </div>
+
+                            <!-- Arrival preview — always visible, shows computed arrival time -->
+                            <div id="ACSArrivalPreview" style="margin:0 5px 4px 5px; padding:5px 8px; background:#0d0000; border:1px solid #2a0000; color:#8a0303; font-size:8pt; border-radius:2px; font-family:monospace; display:flex; justify-content:space-between; align-items:center;"
+                                title="Calculated arrival time at the target village — based on current Target Arrival input">
+                                <span style="color:#4a0000; font-weight:bold;">⚔ Arrives at:</span>
+                                <span id="ACSArrivalTime" style="color:#ff4d4d; font-weight:bold; letter-spacing:0.5px;">--:--:--.--- (--/--/----)</span>
                             </div>
 
                             <!-- Validation warning -->
@@ -228,21 +235,36 @@
                 }
             });
 
-            // Manual text input — parse on Enter or blur
-            const commitManualInput = () => {
+            // Live parsing — every keystroke immediately tries to parse and apply.
+            // No Enter needed. Red border = incomplete/invalid, clears as soon as valid.
+            const liveParseInput = () => {
                 const raw = $('#ACSTimeText').val();
                 const parsed = this.parseManualInput(raw);
                 if (parsed) {
-                    this._setSelectedDate(parsed, true); // skipInputUpdate=true so cursor isn't lost
+                    this._setSelectedDate(parsed, true); // skipInputUpdate=true — don't overwrite while typing
                     $('#ACSTimeText').css('border-color', '');
                 } else {
-                    // Red border to indicate invalid format
-                    $('#ACSTimeText').css('border-color', '#ff0000');
+                    $('#ACSTimeText').css('border-color', '#550000'); // subtle dark-red while incomplete
                 }
             };
-            $('#ACSTimeText').on('blur', commitManualInput);
+            // on input covers typing, paste, cut, browser autofill
+            $('#ACSTimeText').on('input', liveParseInput);
+            // blur: final commit + restore display if field was left mid-edit
+            $('#ACSTimeText').on('blur', () => {
+                const raw = $('#ACSTimeText').val();
+                const parsed = this.parseManualInput(raw);
+                if (parsed) {
+                    this._setSelectedDate(parsed); // full update — re-render display
+                    $('#ACSTimeText').css('border-color', '');
+                } else if (this._selectedDate) {
+                    // Revert to last valid value
+                    this.renderTimeDisplay();
+                    $('#ACSTimeText').css('border-color', '');
+                }
+            });
+            // Keep Enter as convenience shortcut to blur (confirm + exit field)
             $('#ACSTimeText').on('keydown', (e) => {
-                if (e.key === 'Enter') { e.preventDefault(); commitManualInput(); $('#ACSTimeText').blur(); }
+                if (e.key === 'Enter') { e.preventDefault(); $('#ACSTimeText').blur(); }
             });
 
             // Segment definitions for DD/MM/YYYY HH:MM:SS.mmm [start, end (exclusive), maxLen]
@@ -325,6 +347,7 @@
             this._selectedDate = date;
             if (!skipInputUpdate) this.renderTimeDisplay();
             this.validateTime();
+            this.updateArrivalPreview();
         },
 
         renderTimeDisplay: function() {
@@ -341,6 +364,7 @@
             // Update placeholder to reflect active format
             const ph = this.use12h ? 'DD/MM/YYYY HH:MM:SS.mmm AM/PM' : 'DD/MM/YYYY HH:MM:SS.mmm';
             $('#ACSTimeText').attr('placeholder', ph);
+            this.updateArrivalPreview();
         },
 
         // Parse a manually typed datetime string — accepts both 24h and 12h formats
@@ -366,6 +390,16 @@
             else if (ampm === 'PM' && hours !== 12) hours += 12;
             const result = new Date(parseInt(yyyy,10), parseInt(mo,10)-1, parseInt(dd,10), hours, mins, secs, msNum);
             return isNaN(result.getTime()) ? null : result;
+        },
+
+        // Update the "⚔ Arrives at:" preview line
+        updateArrivalPreview: function() {
+            if (!this._selectedDate) return;
+            // _selectedDate IS the arrival time — display it directly
+            const d = this._selectedDate;
+            const timeStr = this.formatServerTime(d);
+            const dateStr = `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+            $('#ACSArrivalTime').text(`${timeStr} (${dateStr})`);
         },
 
         // Format just the HH:MM:SS part (no ms) respecting 12h/24h
