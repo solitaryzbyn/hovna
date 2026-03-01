@@ -30,8 +30,9 @@
         countdownInterval: null,
         use12h: false,
         sendTimestamp: null,
-        // Internal stored datetime always as Date object
         _selectedDate: null,
+        _worker: null,        // active Web Worker reference for cancellation
+        _ghostActive: false,  // true while ghost mode is armed
 
         init: function () {
             if ($('#ACSMainContainer').length > 0 || this.initialized) return;
@@ -338,7 +339,13 @@
 
             $('#ACSbutton').click((e) => {
                 e.preventDefault();
-                this.executeLogic();
+                if (this._ghostActive) {
+                    if (confirm('Cancel the scheduled attack?')) {
+                        this.cancelGhost();
+                    }
+                } else {
+                    this.executeLogic();
+                }
             });
         },
 
@@ -475,8 +482,14 @@
             const ghostJitter = Math.floor(Math.random() * (jitterRange * 2 + 1)) - jitterRange;
             const finalDelay = this.internetDelay + ghostJitter;
 
+            this._ghostActive = true;
+            this.sent = false;
             this.confirmButton.addClass('btn-disabled');
-            $('#ACSbutton').text('GHOST ACTIVE').addClass('btn-active-blood').prop('disabled', true);
+            $('#ACSbutton')
+                .text('🔴 GHOST ACTIVE — click to cancel')
+                .removeClass('btn-blood')
+                .addClass('btn-cancel-blood')
+                .prop('disabled', false);
             $('#ACSCountdownContainer').show();
             $('#ACSSendAccuracy').hide();
 
@@ -534,9 +547,10 @@
 
             const blob = new Blob([`setInterval(() => postMessage(''), ${0.7 + Math.random() * 0.5});`]);
             const worker = new Worker(window.URL.createObjectURL(blob));
+            this._worker = worker;
 
             worker.onmessage = () => {
-                if (this.sent) return;
+                if (this.sent || !this._ghostActive) return;
                 const realOffset = delay - worldBackwardDelay;
                 const now = new Date(Timing.getCurrentServerTime() + realOffset);
 
@@ -551,12 +565,32 @@
                         const accuracyMs = actualSendTime - this.sendTimestamp;
                         const sign = accuracyMs >= 0 ? '+' : '';
                         $('#ACSSendAccuracy').text(`Send accuracy: ${sign}${accuracyMs}ms`).show();
-
+                        this._ghostActive = false;
+                        this._worker = null;
                         // Save to history using _selectedDate (arrival time, not send time)
                         this.saveHistory(new Date(this._selectedDate.getTime()), accuracyMs);
                     }
                 }
             };
+        },
+
+        cancelGhost: function () {
+            this._ghostActive = false;
+            this.sent = false;
+            // Kill the worker
+            if (this._worker) { this._worker.terminate(); this._worker = null; }
+            // Stop countdown
+            if (this.countdownInterval) { clearInterval(this.countdownInterval); this.countdownInterval = null; }
+            // Restore UI
+            this.confirmButton.removeClass('btn-disabled');
+            $('#ACSbutton')
+                .text('Confirm Ghost Mode')
+                .removeClass('btn-cancel-blood btn-active-blood')
+                .addClass('btn-blood')
+                .prop('disabled', false);
+            $('#ACSCountdownContainer').hide();
+            $('#ACSCountdown').text('00:00:00.000').removeClass('bazinga-final');
+            $('#ACSSendAccuracy').hide();
         },
 
         executeSend: function () {
@@ -657,6 +691,21 @@
         .btn-active-blood {
             background: #1a0000 !important; color: #8a0303 !important;
             border: 1px solid #4a0000 !important;
+        }
+        .btn-cancel-blood {
+            background: linear-gradient(to bottom, #5a0000 0%, #2a0000 100%) !important;
+            color: #ff6666 !important;
+            border: 1px solid #ff0000 !important;
+            cursor: pointer !important;
+            animation: cancel-pulse 1.8s ease-in-out infinite;
+        }
+        .btn-cancel-blood:hover {
+            background: #3a0000 !important;
+            box-shadow: 0 0 8px #ff0000;
+        }
+        @keyframes cancel-pulse {
+            0%, 100% { box-shadow: 0 0 3px #ff000066; }
+            50%       { box-shadow: 0 0 10px #ff0000cc; }
         }
         .bazinga-final {
             color: #ccff00 !important;
