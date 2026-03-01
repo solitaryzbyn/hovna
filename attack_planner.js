@@ -135,7 +135,7 @@
                             <!-- Arrival preview — always visible, shows computed arrival time -->
                             <div id="ACSArrivalPreview" style="margin:0 5px 4px 5px; padding:5px 8px; background:#0d0000; border:1px solid #2a0000; color:#8a0303; font-size:8pt; border-radius:2px; font-family:monospace; display:flex; justify-content:space-between; align-items:center;"
                                 title="Calculated arrival time at the target village — based on current Target Arrival input">
-                                <span style="color:#4a0000; font-weight:bold;">⚔ Arrives at:</span>
+                                <span style="color:#ffffff; font-weight:bold;">⚔ Arrives at:</span>
                                 <span id="ACSArrivalTime" style="color:#ff4d4d; font-weight:bold; letter-spacing:0.5px;">--:--:--.--- (--/--/----)</span>
                             </div>
 
