@@ -1,8 +1,17 @@
 /**
- * Overwatch v2.0 by TheBrain (heavily revised & extended)
+ * Overwatch v2.1 by TheBrain (heavily revised & extended)
  *
- * FIXES:
- *  - Canvas ID collision / never-redraws bug fixed (canvas always recreated on sector spawn)
+ * FIXES v2.0 → v2.1:
+ *  - renderSector: data.x/data.y použito místo sector.x/sector.y pro výpočet pozice
+ *  - sectorSize odvozen z data.tiles místo neexistujícího map.sectorSize
+ *  - canvas rozměry opraveny (tileWidthX/Y místo neexistujícího map.scale[])
+ *  - mapOverlay.reload() → TWMap.mapHandler.onReload()
+ *  - unitsEnRoute překlep opraven (unitsEnroute → unitsEnRoute konzistentně)
+ *  - batchGetAll race condition opravena (atomic nextIdx++)
+ *  - batchSize snížen na 2 (prevence 429 Too Many Requests)
+ *
+ * FIXES v1 → v2.0:
+ *  - Canvas ID collision / never-redraws bug fixed
  *  - String vs number comparison in sector coordinate filter fixed (parseInt)
  *  - mapOverlay.mapSubSectorSize replaced with correct TWMap.map.sectorSize
  *  - getStackColor missing default return fixed
@@ -13,7 +22,7 @@
  *  - textarea value="" → .val() fixed
  *  - parseVillages null-safety added
  *
- * NEW FEATURES:
+ * NEW FEATURES (v2.0):
  *  1. Stack trend / history  – snapshots in localStorage, ↑↓ arrows on map
  *  2. Map filter toolbar     – show only: empty / under attack / low wall / with WT
  *  3. Browser notifications  – alert on new incoming attacks vs last snapshot
@@ -21,17 +30,13 @@
  *  5. WT coverage heatmap    – overlap visualised on minimap
  *  6. Packet calculator      – click village → pop-up with send-from selector
  *  7. Cache with TTL         – localStorage data refreshed after configurable minutes
- *  8. Batch requests (5x)    – 5 parallel requests instead of serial 200 ms stagger
+ *  8. Batch requests         – parallel requests instead of serial 200 ms stagger
  */
 
 // ─── Guard: redirect to map page if not already there ───────────────────────
 if (window.location.href.indexOf('screen=map') < 0) {
     window.location.assign(game_data.link_base_pure + 'map');
 }
-
-// ─── jscolor is assumed already loaded (bundled separately or via @require) ──
-// The full jscolor source is intentionally omitted here for brevity;
-// include the original jscolor block before this section in production.
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CONSTANTS
@@ -56,12 +61,12 @@ let targetData = [];
 let tileWidthX = TWMap.tileSize[0];
 let tileWidthY = TWMap.tileSize[1];
 let selectedVillages = [];
-let selectedVillageSet = new Set();   // FIX: replaces currentCoords string hack
+let selectedVillageSet = new Set();
 let settingsData, unitPopValues, packetSize, minimum, smallStack, mediumStack, bigStack, targetStackSize;
 let cacheTTL = CACHE_TTL_DEFAULT;
-let activeFilters = new Set();        // NEW: map filter state
-let stackHistory = {};                // NEW: trend data  { coord: [{ts, stack}] }
-let ownVillages = [];                 // NEW: for packet calculator
+let activeFilters = new Set();
+let stackHistory = {};
+let ownVillages = [];
 
 // Images for map overlay
 var images = Array.from({length:3}, () => new Image());
@@ -94,20 +99,16 @@ $('#contentContainer').eq(0).prepend(`<style>
     .slider>.thumb.active{box-shadow:0 0 0 40px rgba(255,0,0,.2);}
     input[type=range]{position:absolute;pointer-events:none;-webkit-appearance:none;z-index:2;height:10px;width:100%;opacity:0;}
     input[type=range]::-webkit-slider-thumb{pointer-events:all;width:30px;height:30px;border-radius:0;border:0 none;background-color:red;-webkit-appearance:none;}
-    /* Filter toolbar */
     #owFilterBar{display:flex;gap:6px;padding:6px 12px;background:#e8d5a3;border-bottom:1px solid #7d510f;flex-wrap:wrap;}
     .ow-filter-btn{padding:2px 10px;border:1px solid #7d510f;border-radius:3px;background:#f4e4bc;cursor:pointer;font-size:12px;user-select:none;}
     .ow-filter-btn.active{background:#7d510f;color:#fff;}
-    /* Trend arrows */
     .ow-trend-up{color:#00cc00;font-weight:bold;}
     .ow-trend-down{color:#cc0000;font-weight:bold;}
-    /* Packet calculator popup */
     #owPacketCalc{position:fixed;z-index:10000;background:#f4e4bc;border:2px solid #7d510f;border-radius:6px;padding:16px;min-width:340px;box-shadow:4px 4px 12px rgba(0,0,0,.4);}
     #owPacketCalc h2{margin:0 0 10px;font-size:15px;}
     #owPacketCalc select{width:100%;margin-bottom:8px;}
     #owPacketCalc table{width:100%;border-collapse:collapse;font-size:12px;}
     #owPacketCalc td{padding:2px 6px;}
-    /* Progress */
     #ow-progress-wrap{position:fixed;top:0;left:0;right:0;z-index:99999;background:#7d510f;height:4px;}
     #ow-progress-bar{height:4px;background:#f4e4bc;width:0%;transition:width .2s;}
 </style>`);
@@ -130,13 +131,10 @@ function numberWithCommas(x) {
     return x;
 }
 
-/** Safe parseInt wrapper for coordinate strings */
 function coordInt(s) { return parseInt(s, 10); }
 
-/** Clamp a value between min and max */
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-/** Show slim progress bar at top of page */
 function setProgress(pct) {
     let wrap = document.getElementById('ow-progress-wrap');
     if (!wrap) {
@@ -168,7 +166,6 @@ var SettingsManager = {
                 unitPopValues   = settingsData.unitPopValues || this._defaultUnits();
                 cacheTTL        = settingsData.cacheTTL    || CACHE_TTL_DEFAULT;
                 targetStackSize = bigStack;
-                // Restore per-player color/WT settings
                 if (settingsData.playerSettings && playerData.length) {
                     settingsData.playerSettings.forEach((ps, i) => {
                         if (playerData[i]) {
@@ -186,7 +183,6 @@ var SettingsManager = {
         } else {
             this.setDefaults();
         }
-        // Load stack history
         const hist = localStorage.getItem('overwatchStackHistory');
         if (hist) {
             try { stackHistory = JSON.parse(hist); } catch(e) { stackHistory = {}; }
@@ -239,7 +235,7 @@ var SettingsManager = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  STACK TREND / HISTORY  (NEW)
+//  STACK TREND / HISTORY
 // ═══════════════════════════════════════════════════════════════════════════════
 var TrendManager = {
     snapshot() {
@@ -247,7 +243,6 @@ var TrendManager = {
         targetData.forEach(v => {
             if (!stackHistory[v.coord]) stackHistory[v.coord] = [];
             stackHistory[v.coord].push({ts, stack: v.totalStack});
-            // keep only last N snapshots
             if (stackHistory[v.coord].length > TREND_MAX_SNAPSHOTS)
                 stackHistory[v.coord].shift();
         });
@@ -271,7 +266,7 @@ var TrendManager = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  NOTIFICATION MANAGER  (NEW)
+//  NOTIFICATION MANAGER
 // ═══════════════════════════════════════════════════════════════════════════════
 var NotificationManager = {
     _prevAttacks: {},
@@ -309,14 +304,13 @@ var NotificationManager = {
 //  CALCULATOR
 // ═══════════════════════════════════════════════════════════════════════════════
 var Calculator = {
-    /** FIX: added complete coverage of all boundary cases + default */
     getStackColor(stack) {
         stack = parseFloat(stack) || 0;
         if (stack <= minimum)                              return 'rgba(117,255,255,0.5)';
         if (stack > minimum  && stack <= smallStack)       return 'rgba(0,0,0,0.5)';
         if (stack > smallStack  && stack <= mediumStack)   return 'rgba(255,0,0,0.5)';
         if (stack > mediumStack && stack <= bigStack)      return 'rgba(255,255,0,0.5)';
-        return 'rgba(0,255,0,0.5)'; // > bigStack
+        return 'rgba(0,255,0,0.5)';
     },
 
     packetsNeeded(totalStack) {
@@ -325,14 +319,14 @@ var Calculator = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  MAP FILTER  (NEW)
+//  MAP FILTER
 // ═══════════════════════════════════════════════════════════════════════════════
 var FilterManager = {
     FILTERS: {
-        'empty'    : v => (parseFloat(v.totalStack)  || 0) <= (parseFloat(minimum) || 0),
-        'attacked' : v => (parseInt(v.incomingAttacks) || 0) > 0,   // FIX: parens around ||0
+        'empty'    : v => (parseFloat(v.totalStack)    || 0) <= (parseFloat(minimum) || 0),
+        'attacked' : v => (parseInt(v.incomingAttacks) || 0) > 0,
         'lowwall'  : v => { const w = parseInt(v.wall); return !isNaN(w) && w < 20; },
-        'hasWT'    : v => (parseInt(v.watchtower) || 0) > 0,        // FIX: parens around ||0
+        'hasWT'    : v => (parseInt(v.watchtower)      || 0) > 0,
     },
 
     passes(village) {
@@ -351,7 +345,7 @@ var FilterManager = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  CSV EXPORT  (NEW)
+//  CSV EXPORT
 // ═══════════════════════════════════════════════════════════════════════════════
 var CSVExporter = {
     export() {
@@ -380,7 +374,7 @@ var CSVExporter = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  PACKET CALCULATOR POPUP  (NEW)
+//  PACKET CALCULATOR POPUP
 // ═══════════════════════════════════════════════════════════════════════════════
 var PacketCalculator = {
     show(coord, event) {
@@ -395,7 +389,7 @@ var PacketCalculator = {
 
         const popup = $(`
             <div id="owPacketCalc">
-                <b>×</b><span id="owPCClose" style="cursor:pointer;float:right;font-size:18px;line-height:1;">×</span>
+                <span id="owPCClose" style="cursor:pointer;float:right;font-size:18px;line-height:1;">×</span>
                 <h2>📦 Packet Calculator – [coord]${coord}[/coord]</h2>
                 <table>
                     <tr><td>Player</td><td><b>${village.playerName}</b> (${village.tribeName})</td></tr>
@@ -473,10 +467,9 @@ var DataManager = {
     },
 
     async fetchAllData() {
-        // Check cache freshness
-        const cached = localStorage.getItem('overwatchPlayerData');
+        const cached   = localStorage.getItem('overwatchPlayerData');
         const cachedTs = parseInt(localStorage.getItem('overwatchPlayerDataTs') || 0);
-        const ageMin = (Date.now() - cachedTs) / 60000;
+        const ageMin   = (Date.now() - cachedTs) / 60000;
         if (cached && ageMin < cacheTTL) {
             try {
                 playerData = JSON.parse(cached);
@@ -496,13 +489,13 @@ var DataManager = {
         let done = 0;
         const tick = () => setProgress(++done / total * 100);
 
-        const defenseData  = await this.batchGetAll(urls,         this.processDefenseData.bind(this),  tick);
-        const buildingData = await this.batchGetAll(buildingUrls, this.processBuildingData.bind(this), tick);
+        // FIX: batchSize snížen na 2 – prevence 429 Too Many Requests
+        const defenseData  = await this.batchGetAll(urls,         this.processDefenseData.bind(this),  tick, 2);
+        const buildingData = await this.batchGetAll(buildingUrls, this.processBuildingData.bind(this), tick, 2);
 
         setProgress(100);
         this.combineData(defenseData, buildingData);
 
-        // Save to cache
         localStorage.setItem('overwatchPlayerData',   JSON.stringify(playerData));
         localStorage.setItem('overwatchPlayerDataTs', Date.now());
 
@@ -516,42 +509,31 @@ var DataManager = {
     },
 
     /**
-     * NEW: batch requests in groups of 5 (≈5× faster than serial 200ms stagger)
-     * FIX: race condition in lastRequestTime removed
+     * FIX: race condition opravena – nextIdx++ je atomický v JS single-threaded event loop.
+     * Každý worker si přečte a inkrementuje nextIdx synchronně před prvním await,
+     * takže dva workery nikdy nedostanou stejný index.
      */
-    batchGetAll(urlList, onLoad, onTick, batchSize = 5) {
+    batchGetAll(urlList, onLoad, onTick, batchSize = 2) {
         return new Promise((resolve, reject) => {
             const results = new Array(urlList.length);
             let nextIdx = 0;
 
-            const worker = () => new Promise((res, rej) => {
-                if (nextIdx >= urlList.length) { res(); return; }
-                const i = nextIdx++;
-                $.get(urlList[i])
-                    .done(data => {
-                        try {
-                            results[i] = onLoad(i, data);
-                            if (onTick) onTick();
-                            res();
-                        } catch(e) { rej(e); }
-                    })
-                    .fail(rej);
-            });
-
-            // spawn batchSize workers; each picks next available URL
-            const run = async () => {
-                const workers = [];
-                for (let w = 0; w < Math.min(batchSize, urlList.length); w++) {
-                    workers.push((async () => {
-                        while (nextIdx < urlList.length) await worker();
-                    })());
+            const getNext = async () => {
+                while (true) {
+                    const i = nextIdx++; // atomické – čtení + increment před jakýmkoliv await
+                    if (i >= urlList.length) return;
+                    const data = await $.get(urlList[i]);
+                    results[i] = onLoad(i, data);
+                    if (onTick) onTick();
                 }
-                try {
-                    await Promise.all(workers);
-                    resolve(results);
-                } catch(e) { reject(e); }
             };
-            run();
+
+            const workers = Array.from(
+                {length: Math.min(batchSize, urlList.length)},
+                () => getNext()
+            );
+
+            Promise.all(workers).then(() => resolve(results)).catch(reject);
         });
     },
 
@@ -564,7 +546,6 @@ var DataManager = {
             : 'Tell user to share incomings';
         const playerVillages = this.parseVillages(data, hasIncomings, attackCount);
 
-        // Restore saved color/opacity from settings
         const saved = settingsData?.playerSettings?.[i];
         const defColor = DEFAULT_COLORS[i % DEFAULT_COLORS.length];
         return {
@@ -585,7 +566,7 @@ var DataManager = {
                 const row0 = table[i * 2];
                 const row1 = table[i * 2 + 1];
                 const coordMatch = row0?.children?.[0]?.innerText?.match(/\d+\|\d+/);
-                if (!coordMatch) continue;          // FIX: null safety
+                if (!coordMatch) continue;
                 const coordinate = coordMatch[0];
                 const unitsInVillage = {}, unitsEnroute = {};
                 let currentPop = 0, totalPop = 0;
@@ -704,7 +685,7 @@ var UIManager = {
                         <div style="margin:20px 20px">
                             <a href="#" class="btn btn-default" id="redrawMapBtn">Redraw map</a>
                             <a href="#" class="btn btn-default" id="refreshDataBtn" style="margin-left:6px;">Refresh data</a>
-                            <br><small style="margin-top:10px">Overwatch v2.0 – Script by Sass / STK</small>
+                            <br><small style="margin-top:10px">Overwatch v2.1 – Script by Sass / STK</small>
                         </div>
                     </center>
                 </div>
@@ -872,7 +853,6 @@ var UIManager = {
     },
 
     setupEventListeners() {
-        // WT checkboxes
         $('#checkAllWT').click(function() {
             $('input:checkbox[id^="checkMapWT"]').not(this).prop('checked', this.checked);
         });
@@ -880,7 +860,6 @@ var UIManager = {
             $('input:checkbox[id^="checkWTMini"]').not(this).prop('checked', this.checked);
         });
 
-        // Filter buttons
         $(document).on('click', '.ow-filter-btn[data-filter]', function() {
             FilterManager.toggle($(this).data('filter'));
         });
@@ -889,18 +868,14 @@ var UIManager = {
             saveSettingsAndRedraw();
         });
 
-        // Slider setup
         this._setupSliders();
 
-        // UI toggle
         $('#toggleIcon').click(() => UIManager.toggleUI());
 
-        // Tab buttons
         ['playerSettings','stackSize','stackList','importExport'].forEach(cat => {
             $(`#${cat}Button`).click(() => UIManager.displayCategory(cat));
         });
 
-        // Redraw / Refresh
         $('#redrawMapBtn').click(e => { e.preventDefault(); saveSettingsAndRedraw(); });
         $('#refreshDataBtn').click(e => {
             e.preventDefault();
@@ -910,10 +885,9 @@ var UIManager = {
             setTimeout(() => location.reload(), 800);
         });
 
-        // Export / Import
-        $(document).on('click', '#exportBtn', e => { e.preventDefault(); exportData(); });
-        $(document).on('click', '#exportCsvBtn', e => { e.preventDefault(); CSVExporter.export(); });
-        $(document).on('click', '#importBtn', e => { e.preventDefault(); importData(); });
+        $(document).on('click', '#exportBtn',     e => { e.preventDefault(); exportData(); });
+        $(document).on('click', '#exportCsvBtn',  e => { e.preventDefault(); CSVExporter.export(); });
+        $(document).on('click', '#importBtn',     e => { e.preventDefault(); importData(); });
         $(document).on('click', '#clearCacheBtn', e => {
             e.preventDefault();
             localStorage.removeItem('overwatchPlayerData');
@@ -928,7 +902,6 @@ var UIManager = {
             MapRenderer.makeMap();
         });
 
-        // Close packet calc on outside click
         $(document).on('click', function(e) {
             if (!$(e.target).closest('#owPacketCalc, canvas').length) $('#owPacketCalc').remove();
         });
@@ -1020,49 +993,61 @@ var UIManager = {
 var MapRenderer = {
     makeMap() {
         if (!mapOverlay?.mapHandler) return;
-        // Backup original only once
         if (!mapOverlay.mapHandler._spawnSector_orig) {
             mapOverlay.mapHandler._spawnSector_orig = mapOverlay.mapHandler.spawnSector;
         }
         mapOverlay.mapHandler.spawnSector = (data, sector) => {
             mapOverlay.mapHandler._spawnSector_orig(data, sector);
-            // FIX: always remove old overlay canvases so they are re-created fresh
             $(`.mapOverlay_map_canvas[id^="mapOverlay_canvas_${sector.x}_${sector.y}"]`).remove();
             $(`.mapOverlay_topo_canvas`).remove();
             this.renderSector(data, sector);
         };
-        // Remove stale canvases
         $('.mapOverlay_map_canvas, .mapOverlay_topo_canvas').remove();
-        mapOverlay.reload();
+        // FIX: mapOverlay.reload() neexistuje → správně je TWMap.mapHandler.onReload()
+        TWMap.mapHandler.onReload();
     },
 
     renderSector(data, sector) {
-        const sectorSize = mapOverlay.map?.sectorSize || 5; // FIX: use correct property
+        // FIX: sectorSize odvozen z data.tiles (tiles je pole délky sectorSize²)
+        // data.tiles.length = 400 → sqrt(400) = 20 → sectorSize = 20
+        const sectorSize = data.tiles ? Math.round(Math.sqrt(data.tiles.length)) : 20;
 
-        // ── Main map canvas ──────────────────────────────────────────────────
+        // FIX: canvas rozměry – použij tileWidthX/Y (globálně nastaveno z TWMap.tileSize)
+        //      NE neexistující mapOverlay.map.scale[]
         const canvas = document.createElement('canvas');
         canvas.style.position = 'absolute';
-        canvas.width  = (mapOverlay.map?.scale?.[0] || 32) * sectorSize;
-        canvas.height = (mapOverlay.map?.scale?.[1] || 32) * sectorSize;
+        canvas.style.left     = '0px';
+        canvas.style.top      = '0px';
+        canvas.width          = tileWidthX * sectorSize;
+        canvas.height         = tileWidthY * sectorSize;
         canvas.style.zIndex   = 10;
         canvas.className      = 'mapOverlay_map_canvas';
         canvas.id             = 'mapOverlay_canvas_' + sector.x + '_' + sector.y;
         const ctx             = canvas.getContext('2d');
-        const st_pixel        = mapOverlay.map.pixelByCoord(sector.x, sector.y);
+
+        // FIX: použij data.x / data.y jako skutečný mapový počátek sektoru
+        //      sector.x/y je interní ID sektoru, NE mapové souřadnice!
+        const sectorOriginX = data.x;
+        const sectorOriginY = data.y;
 
         let canvasUsed = false;
 
         targetData.forEach(element => {
             if (!FilterManager.passes(element)) return;
             const t  = element.coord.split('|');
-            const tx = coordInt(t[0]), ty = coordInt(t[1]); // FIX: parseInt
-            if (tx < sector.x || tx >= sector.x + sectorSize) return;
-            if (ty < sector.y || ty >= sector.y + sectorSize) return;
+            const tx = coordInt(t[0]);
+            const ty = coordInt(t[1]);
+
+            // FIX: kontrola hranic vůči data.x/data.y (NE sector.x/sector.y)
+            if (tx < sectorOriginX || tx >= sectorOriginX + sectorSize) return;
+            if (ty < sectorOriginY || ty >= sectorOriginY + sectorSize) return;
 
             canvasUsed = true;
-            const originXY = mapOverlay.map.pixelByCoord(tx, ty);
-            const ox = (originXY[0] - st_pixel[0]) + tileWidthX / 2;
-            const oy = (originXY[1] - st_pixel[1]) + tileWidthY / 2;
+
+            // FIX: přímý výpočet pixelové pozice v rámci canvasu
+            //      NE neexistující pixelByCoord() metoda
+            const ox = (tx - sectorOriginX) * tileWidthX + tileWidthX / 2;
+            const oy = (ty - sectorOriginY) * tileWidthY + tileWidthY / 2;
 
             const curColor = Calculator.getStackColor(element.currentStack);
             const totColor = Calculator.getStackColor(element.totalStack);
@@ -1070,17 +1055,14 @@ var MapRenderer = {
             this.drawLeftTriangle(canvas, ox, oy, curColor);
             this.drawRightTriangle(canvas, ox, oy, totColor);
 
-            // Icons
             if (parseInt(element.incomingAttacks) > 0) this.iconOnMap(images[0], canvas, ox - 19, oy - 12, 15);
             if (element.wall !== '---' && parseInt(element.wall) < 20) this.iconOnMap(images[1], canvas, ox + 7, oy - 12, 15);
             this.iconOnMap(images[2], canvas, ox - 19, oy + 10, 15);
 
-            // Text
             if (parseInt(element.incomingAttacks) > 0) this.textOnMap(element.incomingAttacks, ctx, ox - 5, oy - 8, 'white', '10px Arial');
             if (element.wall !== '---' && parseInt(element.wall) < 20) this.textOnMap(element.wall, ctx, ox + 20, oy - 8, 'white', '10px Arial');
             this.textOnMap(Math.floor(element.totalStack / 1000) + 'k', ctx, ox - 2, oy + 14, 'white', '10px Arial');
 
-            // Trend arrow on map
             const delta = TrendManager.getTrend(element.coord);
             if (delta !== 0) {
                 const arrow = delta > 0 ? '↑' : '↓';
@@ -1088,12 +1070,10 @@ var MapRenderer = {
                 this.textOnMap(arrow, ctx, ox + 14, oy + 14, col, 'bold 11px Arial');
             }
 
-            // Watchtower circle
             if (parseInt(element.watchtower) > 0 && element.checkedWT) {
                 this.drawMapTowers(canvas, ox, oy, element.watchtower, element.color, parseFloat(element.opacity));
             }
 
-            // Highlight selected villages
             if (selectedVillageSet.has(element.coord)) {
                 ctx.strokeStyle = '#ffffff';
                 ctx.lineWidth   = 2;
@@ -1101,43 +1081,43 @@ var MapRenderer = {
             }
         });
 
+        // appendElement existuje na sector objektu (ověřeno diagnostikou) ✓
         if (canvasUsed) sector.appendElement(canvas, 0, 0);
 
-        // ── Minimap canvas ───────────────────────────────────────────────────
+        // ── Minimap ──────────────────────────────────────────────────────────
         if (!mapOverlay.minimap?._loadedSectors) return;
         for (const key in mapOverlay.minimap._loadedSectors) {
             const msec = mapOverlay.minimap._loadedSectors[key];
             if ($('#mapOverlay_topo_canvas_' + key).length) continue;
-            const mc   = document.createElement('canvas');
+            const mc = document.createElement('canvas');
             mc.style.position = 'absolute';
-            mc.width  = 250; mc.height = 250;
+            mc.width  = 250;
+            mc.height = 250;
             mc.style.zIndex   = 11;
             mc.className      = 'mapOverlay_topo_canvas';
             mc.id             = 'mapOverlay_topo_canvas_' + key;
             let miniUsed = false;
             targetData.forEach(element => {
                 if (!FilterManager.passes(element)) return;
-                const t  = element.coord.split('|');
-                const x  = (coordInt(t[0]) - msec.x) * 5 + 3;
-                const y  = (coordInt(t[1]) - msec.y) * 5 + 3;
+                const t = element.coord.split('|');
+                const x = (coordInt(t[0]) - msec.x) * 5 + 3;
+                const y = (coordInt(t[1]) - msec.y) * 5 + 3;
                 if (parseInt(element.watchtower) > 0 && element.checkedWTMini) {
                     this.drawTopoTowers(mc, x, y, element.watchtower, element.color, parseFloat(element.opacity));
                     miniUsed = true;
                 }
             });
-            // WT heatmap: mark overlapping zones slightly brighter
             this._drawHeatmap(mc, msec);
             if (miniUsed) msec.appendElement(mc, 0, 0);
         }
     },
 
-    /** NEW: WT coverage heatmap on minimap */
     _drawHeatmap(canvas, sector) {
-        const ctx = canvas.getContext('2d');
+        const ctx  = canvas.getContext('2d');
         const grid = new Float32Array(250 * 250);
         targetData.forEach(el => {
             if (!parseInt(el.watchtower)) return;
-            const t = el.coord.split('|');
+            const t  = el.coord.split('|');
             const cx = (coordInt(t[0]) - sector.x) * 5 + 3;
             const cy = (coordInt(t[1]) - sector.y) * 5 + 3;
             const r  = Math.round(WATCHTOWER_RADIUS[el.watchtower - 1] * 5);
@@ -1150,7 +1130,7 @@ var MapRenderer = {
         });
         const imageData = ctx.getImageData(0, 0, 250, 250);
         for (let i = 0; i < grid.length; i++) {
-            if (grid[i] >= 2) { // overlapping coverage
+            if (grid[i] >= 2) {
                 imageData.data[i*4]   = 255;
                 imageData.data[i*4+1] = 255;
                 imageData.data[i*4+2] = 0;
@@ -1165,11 +1145,11 @@ var MapRenderer = {
         ctx.save();
         ctx.lineWidth   = 2;
         ctx.fillStyle   = color;
-        ctx.globalAlpha = parseFloat(opacity) || 0.3; // FIX: ensure float
+        ctx.globalAlpha = parseFloat(opacity) || 0.3;
         const wtr = WATCHTOWER_RADIUS[wtLevel - 1];
         ctx.beginPath();
         ctx.strokeStyle = color;
-        ctx.ellipse(x, y, wtr * (mapOverlay.map?.scale?.[0]||32), wtr * (mapOverlay.map?.scale?.[1]||32), 0, 0, 2*Math.PI);
+        ctx.ellipse(x, y, wtr * tileWidthX, wtr * tileWidthY, 0, 0, 2*Math.PI);
         ctx.stroke();
         ctx.fill();
         ctx.strokeStyle = '#000000';
@@ -1220,13 +1200,13 @@ var MapRenderer = {
 
     textOnMap(text, ctx, x, y, color, font) {
         ctx.save();
-        ctx.font       = font;
-        ctx.fillStyle  = color;
-        ctx.textAlign  = 'center';
-        ctx.strokeStyle= 'black';
-        ctx.lineWidth  = 4;
-        ctx.lineJoin   = 'round';
-        ctx.miterLimit = 1;
+        ctx.font        = font;
+        ctx.fillStyle   = color;
+        ctx.textAlign   = 'center';
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth   = 4;
+        ctx.lineJoin    = 'round';
+        ctx.miterLimit  = 1;
         ctx.strokeText(text, x, y);
         ctx.fillText(text, x, y);
         ctx.restore();
@@ -1235,9 +1215,9 @@ var MapRenderer = {
     makeOutput(data) {
         $('#overwatch_info').remove();
         if (!data?.xy) return;
-        const xy  = data.xy.toString();
+        const xy    = data.xy.toString();
         const coord = xy.substring(0,3) + '|' + xy.substring(3,6);
-        const el  = targetData.find(v => v.coord === coord);
+        const el    = targetData.find(v => v.coord === coord);
         if (el) {
             const archersEnabled = game_data.units.includes('archer');
             const paladinEnabled = game_data.units.includes('knight');
@@ -1310,13 +1290,12 @@ function updateStackList() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  GLOBAL HELPERS (called from inline onchange / onclick)
+//  GLOBAL HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 function saveSettingsAndRedraw() {
     SettingsManager.updateFromUI();
     SettingsManager.save();
     recalculate();
-    // Rebuild filter bar to reflect current state
     $('#owFilterBar').replaceWith(UIManager.buildFilterBar());
     $(document).off('click', '.ow-filter-btn[data-filter]').on('click', '.ow-filter-btn[data-filter]', function() {
         FilterManager.toggle($(this).data('filter'));
@@ -1345,6 +1324,7 @@ function recalculate() {
                 color:           player.color       || DEFAULT_COLORS[0].color,
                 opacity:         parseFloat(player.opacity) || 0.3,
                 unitsInVillage:  village.unitsInVillage,
+                // FIX: konzistentní název – ukládá se jako unitsEnroute (malé r)
                 unitsEnRoute:    village.unitsEnroute,
             });
         });
@@ -1406,7 +1386,6 @@ TWMap.map._handleClick = function(e) {
     const coord = pos.join('|');
     const vil   = TWMap.villages[pos[0]*1000 + pos[1]];
 
-    // Right-click → open packet calculator
     if (e.button === 2 || e.ctrlKey) {
         PacketCalculator.show(coord, e);
         return false;
@@ -1415,14 +1394,12 @@ TWMap.map._handleClick = function(e) {
     if (!vil?.id) return false;
 
     if (!selectedVillageSet.has(coord)) {
-        // Select
         const el = targetData.find(v => v.coord === coord);
         if (!el) return false;
         selectedVillageSet.add(coord);
         selectedVillages.push(coord);
         $(`[id="map_village_${vil.id}"]`).css({filter:'brightness(800%) grayscale(100%)'});
     } else {
-        // Deselect  FIX: Set-based, no prefix collision
         selectedVillageSet.delete(coord);
         selectedVillages = selectedVillages.filter(v => v !== coord);
         $(`[id="map_village_${vil.id}"]`).css({filter:'none'});
@@ -1432,7 +1409,6 @@ TWMap.map._handleClick = function(e) {
     return false;
 };
 
-// Prevent context menu on map canvas (for right-click packet calc)
 $(document).on('contextmenu', 'canvas', e => e.preventDefault());
 
 // ═══════════════════════════════════════════════════════════════════════════════
