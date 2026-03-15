@@ -1023,15 +1023,9 @@ var UIManager = {
 //  MAP RENDERER
 // ═══════════════════════════════════════════════════════════════════════════════
 var MapRenderer = {
-    makeMap() {
+     makeMap() {
         if (!mapOverlay?.mapHandler) return;
 
-        // FIX: onReload() může interně resetovat spawnSector zpět na originál.
-        // Řešení: zachyť onReload a nastav interceptor UVNITŘ něj, těsně před
-        // tím než se začnou spawnovat sektory. Tím zajistíme že náš hook
-        // přežije jakýkoliv reset který onReload provede.
-
-        // Ulož skutečný originál jen pokud ještě nebyl uložen
         if (!TWMap.mapHandler._ow_spawnOrig) {
             TWMap.mapHandler._ow_spawnOrig = TWMap.mapHandler.spawnSector;
         }
@@ -1042,11 +1036,15 @@ var MapRenderer = {
         const self = this;
 
         const installHook = () => {
-            // Vždy přepiš spawnSector čerstvě – onReload ho mohl resetovat
             TWMap.mapHandler.spawnSector = function(data, sector) {
                 TWMap.mapHandler._ow_spawnOrig.call(TWMap.mapHandler, data, sector);
-                $(`.mapOverlay_map_canvas[id^="mapOverlay_canvas_${sector.x}_${sector.y}"]`).remove();
-                $(`.mapOverlay_topo_canvas`).remove();
+                // appendElement strips id/className – use data attribute to find & remove old canvas
+                const root = sector._element_root;
+                if (root) {
+                    root.querySelectorAll('[data-ow]').forEach(el => el.remove());
+                }
+                // Also clean minimap
+                document.querySelectorAll('[data-ow-mini]').forEach(el => el.remove());
                 try {
                     self.renderSector(data, sector);
                 } catch(e) {
@@ -1055,39 +1053,35 @@ var MapRenderer = {
             };
         };
 
-        // Přepiš onReload tak aby vždy znovu nainstaloval hook
         TWMap.mapHandler.onReload = function() {
-            installHook(); // nastav hook PŘED reload
+            installHook();
             TWMap.mapHandler._ow_reloadOrig.call(TWMap.mapHandler);
         };
 
-        $('.mapOverlay_map_canvas, .mapOverlay_topo_canvas').remove();
+        // Remove old overlays via data attribute
+        document.querySelectorAll('[data-ow], [data-ow-mini]').forEach(el => el.remove());
         installHook();
         TWMap.mapHandler.onReload();
     },
 
-    renderSector(data, sector) {
-        // DIAGNOSTIKA ukázala:
-        // - TWMap.map.sectorSize = 5, TWMap.map.pixelByCoord() existuje
-        // - appendElement(el,x,y) ignoruje x,y - vzdy left:0,top:0
-        // - canvas pokryva cely sektor, vesnice se kreslí přes pixelByCoord()
-        const sectorSize = TWMap.map.sectorSize || 5;
-        const tileW = tileWidthX;
-        const tileH = tileWidthY;
 
-        // Absolutní pixel pozice levého horního rohu sektoru
-        const sectorPixel = TWMap.map.pixelByCoord(data.x, data.y);
+    renderSector(data, sector) {
+        const sectorSize = TWMap.map.sectorSize || 5;
+        const tileW = TWMap.tileSize[0];
+        const tileH = TWMap.tileSize[1];
+
+        // pixelByCoord vrací absolutní pozici; rozdíl = relativní pozice v sektoru
+        const sp = TWMap.map.pixelByCoord(data.x, data.y);
 
         const canvas = document.createElement('canvas');
-        canvas.style.position = 'absolute';
-        canvas.style.left     = '0px';
-        canvas.style.top      = '0px';
-        canvas.width          = tileW * sectorSize;
-        canvas.height         = tileH * sectorSize;
-        canvas.style.zIndex   = 10;
-        canvas.className      = 'mapOverlay_map_canvas';
-        canvas.id             = 'mapOverlay_canvas_' + sector.x + '_' + sector.y;
-        const ctx             = canvas.getContext('2d');
+        canvas.width  = tileW * sectorSize;
+        canvas.height = tileH * sectorSize;
+        // DŮLEŽITÉ: appendElement maže id a className!
+        // Nastavíme data-ow atribut PŘED appendElement – ten přežije
+        canvas.setAttribute('data-ow', `${sector.x}_${sector.y}`);
+        // Nastav style přímo
+        canvas.style.cssText = 'position:absolute;left:0;top:0;z-index:10;';
+        const ctx = canvas.getContext('2d');
 
         let canvasUsed = false;
 
@@ -1102,10 +1096,9 @@ var MapRenderer = {
 
             canvasUsed = true;
 
-            // Pixel pozice vesnice relativně k rohu sektoru
-            const vilPixel = TWMap.map.pixelByCoord(tx, ty);
-            const ox = (vilPixel[0] - sectorPixel[0]) + tileW / 2;
-            const oy = (vilPixel[1] - sectorPixel[1]) + tileH / 2;
+            const vp = TWMap.map.pixelByCoord(tx, ty);
+            const ox = (vp[0] - sp[0]) + tileW / 2;
+            const oy = (vp[1] - sp[1]) + tileH / 2;
 
             const curColor = Calculator.getStackColor(element.currentStack);
             const totColor = Calculator.getStackColor(element.totalStack);
@@ -1141,23 +1134,19 @@ var MapRenderer = {
 
         if (canvasUsed) sector.appendElement(canvas, 0, 0);
 
-        // Minimap překreslíme vždy při každém spawnu sektoru
         this._renderMinimap();
     },
 
     _renderMinimap() {
         if (!mapOverlay.minimap?._loadedSectors) return;
-        // Smaž stare minimap canvasy a překresli
-        $('.mapOverlay_topo_canvas').remove();
+        document.querySelectorAll('[data-ow-mini]').forEach(el => el.remove());
         for (const key in mapOverlay.minimap._loadedSectors) {
             const msec = mapOverlay.minimap._loadedSectors[key];
             const mc = document.createElement('canvas');
-            mc.style.position = 'absolute';
             mc.width  = 250;
             mc.height = 250;
-            mc.style.zIndex   = 11;
-            mc.className      = 'mapOverlay_topo_canvas';
-            mc.id             = 'mapOverlay_topo_canvas_' + key;
+            mc.setAttribute('data-ow-mini', key);
+            mc.style.cssText = 'position:absolute;z-index:11;';
             let miniUsed = false;
             targetData.forEach(element => {
                 if (!FilterManager.passes(element)) return;
