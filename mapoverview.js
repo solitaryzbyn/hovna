@@ -1066,20 +1066,30 @@ var MapRenderer = {
 
 
     renderSector(data, sector) {
+        // KLÍČOVÉ ZJIŠTĚNÍ z diagnostiky:
+        // data.x/y = souřadnice datového bloku (každý blok = 20 tiles)
+        // Skutečné mapové souřadnice sektoru jsou v ID TW canvasu:
+        // map_canvas_420_565 → sektor začíná na x=420, y=565
+        // sector._element_root obsahuje canvas s tímto ID
+
         const sectorSize = TWMap.map.sectorSize || 5;
         const tileW = TWMap.tileSize[0];
         const tileH = TWMap.tileSize[1];
 
-        // pixelByCoord vrací absolutní pozici; rozdíl = relativní pozice v sektoru
-        const sp = TWMap.map.pixelByCoord(data.x, data.y);
+        // Získej skutečné souřadnice sektoru z TW canvas ID
+        const twCanvas = sector._element_root?.querySelector('canvas[id^="map_canvas_"]');
+        if (!twCanvas) return;
+        const parts = twCanvas.id.replace('map_canvas_', '').split('_');
+        const sectorX = parseInt(parts[0]);
+        const sectorY = parseInt(parts[1]);
+
+        // Pixel pozice levého horního rohu sektoru
+        const sp = TWMap.map.pixelByCoord(sectorX, sectorY);
 
         const canvas = document.createElement('canvas');
         canvas.width  = tileW * sectorSize;
         canvas.height = tileH * sectorSize;
-        // DŮLEŽITÉ: appendElement maže id a className!
-        // Nastavíme data-ow atribut PŘED appendElement – ten přežije
-        canvas.setAttribute('data-ow', `${sector.x}_${sector.y}`);
-        // Nastav style přímo
+        canvas.setAttribute('data-ow', `${sectorX}_${sectorY}`);
         canvas.style.cssText = 'position:absolute;left:0;top:0;z-index:10;';
         const ctx = canvas.getContext('2d');
 
@@ -1091,8 +1101,8 @@ var MapRenderer = {
             const tx = coordInt(t[0]);
             const ty = coordInt(t[1]);
 
-            if (tx < data.x || tx >= data.x + sectorSize) return;
-            if (ty < data.y || ty >= data.y + sectorSize) return;
+            if (tx < sectorX || tx >= sectorX + sectorSize) return;
+            if (ty < sectorY || ty >= sectorY + sectorSize) return;
 
             canvasUsed = true;
 
