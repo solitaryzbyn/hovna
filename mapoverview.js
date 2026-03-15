@@ -1025,17 +1025,44 @@ var UIManager = {
 var MapRenderer = {
     makeMap() {
         if (!mapOverlay?.mapHandler) return;
-        if (!mapOverlay.mapHandler._spawnSector_orig) {
-            mapOverlay.mapHandler._spawnSector_orig = mapOverlay.mapHandler.spawnSector;
+
+        // FIX: onReload() může interně resetovat spawnSector zpět na originál.
+        // Řešení: zachyť onReload a nastav interceptor UVNITŘ něj, těsně před
+        // tím než se začnou spawnovat sektory. Tím zajistíme že náš hook
+        // přežije jakýkoliv reset který onReload provede.
+
+        // Ulož skutečný originál jen pokud ještě nebyl uložen
+        if (!TWMap.mapHandler._ow_spawnOrig) {
+            TWMap.mapHandler._ow_spawnOrig = TWMap.mapHandler.spawnSector;
         }
-        mapOverlay.mapHandler.spawnSector = (data, sector) => {
-            mapOverlay.mapHandler._spawnSector_orig(data, sector);
-            $(`.mapOverlay_map_canvas[id^="mapOverlay_canvas_${sector.x}_${sector.y}"]`).remove();
-            $(`.mapOverlay_topo_canvas`).remove();
-            this.renderSector(data, sector);
+        if (!TWMap.mapHandler._ow_reloadOrig) {
+            TWMap.mapHandler._ow_reloadOrig = TWMap.mapHandler.onReload;
+        }
+
+        const self = this;
+
+        const installHook = () => {
+            // Vždy přepiš spawnSector čerstvě – onReload ho mohl resetovat
+            TWMap.mapHandler.spawnSector = function(data, sector) {
+                TWMap.mapHandler._ow_spawnOrig.call(TWMap.mapHandler, data, sector);
+                $(`.mapOverlay_map_canvas[id^="mapOverlay_canvas_${sector.x}_${sector.y}"]`).remove();
+                $(`.mapOverlay_topo_canvas`).remove();
+                try {
+                    self.renderSector(data, sector);
+                } catch(e) {
+                    console.error('Overwatch renderSector error:', e);
+                }
+            };
         };
+
+        // Přepiš onReload tak aby vždy znovu nainstaloval hook
+        TWMap.mapHandler.onReload = function() {
+            installHook(); // nastav hook PŘED reload
+            TWMap.mapHandler._ow_reloadOrig.call(TWMap.mapHandler);
+        };
+
         $('.mapOverlay_map_canvas, .mapOverlay_topo_canvas').remove();
-        // FIX: mapOverlay.reload() neexistuje → správně je TWMap.mapHandler.onReload()
+        installHook();
         TWMap.mapHandler.onReload();
     },
 
