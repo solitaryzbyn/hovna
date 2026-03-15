@@ -1067,27 +1067,27 @@ var MapRenderer = {
     },
 
     renderSector(data, sector) {
-        // FIX: sectorSize odvozen z data.tiles (tiles je pole délky sectorSize²)
-        // data.tiles.length = 400 → sqrt(400) = 20 → sectorSize = 20
-        const sectorSize = data.tiles ? Math.round(Math.sqrt(data.tiles.length)) : 20;
+        // DIAGNOSTIKA ukázala:
+        // - TWMap.map.sectorSize = 5, TWMap.map.pixelByCoord() existuje
+        // - appendElement(el,x,y) ignoruje x,y - vzdy left:0,top:0
+        // - canvas pokryva cely sektor, vesnice se kreslí přes pixelByCoord()
+        const sectorSize = TWMap.map.sectorSize || 5;
+        const tileW = tileWidthX;
+        const tileH = tileWidthY;
 
-        // FIX: canvas rozměry – použij tileWidthX/Y (globálně nastaveno z TWMap.tileSize)
-        //      NE neexistující mapOverlay.map.scale[]
+        // Absolutní pixel pozice levého horního rohu sektoru
+        const sectorPixel = TWMap.map.pixelByCoord(data.x, data.y);
+
         const canvas = document.createElement('canvas');
         canvas.style.position = 'absolute';
         canvas.style.left     = '0px';
         canvas.style.top      = '0px';
-        canvas.width          = tileWidthX * sectorSize;
-        canvas.height         = tileWidthY * sectorSize;
+        canvas.width          = tileW * sectorSize;
+        canvas.height         = tileH * sectorSize;
         canvas.style.zIndex   = 10;
         canvas.className      = 'mapOverlay_map_canvas';
         canvas.id             = 'mapOverlay_canvas_' + sector.x + '_' + sector.y;
         const ctx             = canvas.getContext('2d');
-
-        // FIX: použij data.x / data.y jako skutečný mapový počátek sektoru
-        //      sector.x/y je interní ID sektoru, NE mapové souřadnice!
-        const sectorOriginX = data.x;
-        const sectorOriginY = data.y;
 
         let canvasUsed = false;
 
@@ -1097,16 +1097,15 @@ var MapRenderer = {
             const tx = coordInt(t[0]);
             const ty = coordInt(t[1]);
 
-            // FIX: kontrola hranic vůči data.x/data.y (NE sector.x/sector.y)
-            if (tx < sectorOriginX || tx >= sectorOriginX + sectorSize) return;
-            if (ty < sectorOriginY || ty >= sectorOriginY + sectorSize) return;
+            if (tx < data.x || tx >= data.x + sectorSize) return;
+            if (ty < data.y || ty >= data.y + sectorSize) return;
 
             canvasUsed = true;
 
-            // FIX: přímý výpočet pixelové pozice v rámci canvasu
-            //      NE neexistující pixelByCoord() metoda
-            const ox = (tx - sectorOriginX) * tileWidthX + tileWidthX / 2;
-            const oy = (ty - sectorOriginY) * tileWidthY + tileWidthY / 2;
+            // Pixel pozice vesnice relativně k rohu sektoru
+            const vilPixel = TWMap.map.pixelByCoord(tx, ty);
+            const ox = (vilPixel[0] - sectorPixel[0]) + tileW / 2;
+            const oy = (vilPixel[1] - sectorPixel[1]) + tileH / 2;
 
             const curColor = Calculator.getStackColor(element.currentStack);
             const totColor = Calculator.getStackColor(element.totalStack);
@@ -1136,18 +1135,22 @@ var MapRenderer = {
             if (selectedVillageSet.has(element.coord)) {
                 ctx.strokeStyle = '#ffffff';
                 ctx.lineWidth   = 2;
-                ctx.strokeRect(ox - tileWidthX/2, oy - tileWidthY/2, tileWidthX, tileWidthY);
+                ctx.strokeRect(ox - tileW/2, oy - tileH/2, tileW, tileH);
             }
         });
 
-        // appendElement existuje na sector objektu (ověřeno diagnostikou) ✓
         if (canvasUsed) sector.appendElement(canvas, 0, 0);
 
-        // ── Minimap ──────────────────────────────────────────────────────────
+        // Minimap překreslíme vždy při každém spawnu sektoru
+        this._renderMinimap();
+    },
+
+    _renderMinimap() {
         if (!mapOverlay.minimap?._loadedSectors) return;
+        // Smaž stare minimap canvasy a překresli
+        $('.mapOverlay_topo_canvas').remove();
         for (const key in mapOverlay.minimap._loadedSectors) {
             const msec = mapOverlay.minimap._loadedSectors[key];
-            if ($('#mapOverlay_topo_canvas_' + key).length) continue;
             const mc = document.createElement('canvas');
             mc.style.position = 'absolute';
             mc.width  = 250;
