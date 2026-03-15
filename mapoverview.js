@@ -472,32 +472,47 @@ var DataManager = {
         const ageMin   = (Date.now() - cachedTs) / 60000;
         if (cached && ageMin < cacheTTL) {
             try {
-                playerData = JSON.parse(cached);
-                showNotification(`Loaded from cache (${Math.floor(ageMin)}m old, TTL ${cacheTTL}m)`);
-                UIManager.createOverview();
-                if (typeof jscolor !== 'undefined') jscolor.install();
-                DataManager.setupMapInterceptors();
-                recalculate();
-                TrendManager.snapshot();
-                NotificationManager.checkNewAttacks();
-                MapRenderer.makeMap();
-                return;
+                const parsed = JSON.parse(cached);
+                // FIX: validuj cache – nesmí být prázdná
+                if (parsed && parsed.length > 0) {
+                    playerData = parsed;
+                    showNotification(`Načteno z cache (stáří ${Math.floor(ageMin)}m, TTL ${cacheTTL}m)`);
+                    UIManager.createOverview();
+                    if (typeof jscolor !== 'undefined') jscolor.install();
+                    DataManager.setupMapInterceptors();
+                    recalculate();
+                    TrendManager.snapshot();
+                    NotificationManager.checkNewAttacks();
+                    MapRenderer.makeMap();
+                    return;
+                }
             } catch(e) { /* fall through to fresh fetch */ }
         }
 
         const total = urls.length + buildingUrls.length;
         let done = 0;
-        const tick = () => setProgress(++done / total * 100);
+        const tick = () => {
+            done++;
+            setProgress(done / total * 100);
+            showNotification(`Načítám data… ${done}/${total}`, 1500);
+        };
 
-        // FIX: batchSize snížen na 2 – prevence 429 Too Many Requests
-        const defenseData  = await this.batchGetAll(urls,         this.processDefenseData.bind(this),  tick, 2);
-        const buildingData = await this.batchGetAll(buildingUrls, this.processBuildingData.bind(this), tick, 2);
+        showNotification(`Načítám data pro ${urls.length} hráčů – prosím čekej…`, 60000);
+
+        const defenseData  = await this.batchGetAll(urls,         this.processDefenseData.bind(this),  tick);
+        const buildingData = await this.batchGetAll(buildingUrls, this.processBuildingData.bind(this), tick);
 
         setProgress(100);
         this.combineData(defenseData, buildingData);
 
-        localStorage.setItem('overwatchPlayerData',   JSON.stringify(playerData));
-        localStorage.setItem('overwatchPlayerDataTs', Date.now());
+        // FIX: ulož do cache jen pokud jsou data platná
+        if (playerData && playerData.length > 0) {
+            localStorage.setItem('overwatchPlayerData',   JSON.stringify(playerData));
+            localStorage.setItem('overwatchPlayerDataTs', Date.now());
+            showNotification(`Data načtena – ${playerData.length} hráčů`, 3000);
+        } else {
+            showNotification('Varování: žádná data se nenačetla!', 5000);
+        }
 
         UIManager.createOverview();
         if (typeof jscolor !== 'undefined') jscolor.install();
@@ -509,32 +524,49 @@ var DataManager = {
     },
 
     /**
-     * FIX: race condition opravena – nextIdx++ je atomický v JS single-threaded event loop.
-     * Každý worker si přečte a inkrementuje nextIdx synchronně před prvním await,
-     * takže dva workery nikdy nedostanou stejný index.
+     * FIX: sériové zpracování s retry při 429 Too Many Requests.
+     * Paralelní requesty způsobují 429 když jiné skripty (vault-client, dodge atd.)
+     * posílají requesty současně. Řešení: jeden request najednou + exponential backoff.
+     * batchSize parametr zachován pro zpětnou kompatibilitu ale ignorován (vždy =1).
      */
-    batchGetAll(urlList, onLoad, onTick, batchSize = 2) {
-        return new Promise((resolve, reject) => {
-            const results = new Array(urlList.length);
-            let nextIdx = 0;
+    async batchGetAll(urlList, onLoad, onTick, batchSize = 1) {
+        const results = new Array(urlList.length);
 
-            const getNext = async () => {
-                while (true) {
-                    const i = nextIdx++; // atomické – čtení + increment před jakýmkoliv await
-                    if (i >= urlList.length) return;
-                    const data = await $.get(urlList[i]);
-                    results[i] = onLoad(i, data);
-                    if (onTick) onTick();
-                }
-            };
+        const getWithRetry = (url, maxRetries = 5) => {
+            return new Promise((resolve, reject) => {
+                const attempt = (retryNum, delay) => {
+                    $.get(url)
+                        .done(data => resolve(data))
+                        .fail(xhr => {
+                            if (xhr.status === 429 && retryNum < maxRetries) {
+                                // Exponential backoff: 3s, 6s, 12s, 24s, 48s
+                                const wait = delay * Math.pow(2, retryNum);
+                                showNotification(`Rate limit (429) – čekám ${Math.round(wait/1000)}s…`, wait);
+                                setTimeout(() => attempt(retryNum + 1, delay), wait);
+                            } else {
+                                reject(xhr);
+                            }
+                        });
+                };
+                attempt(0, 3000);
+            });
+        };
 
-            const workers = Array.from(
-                {length: Math.min(batchSize, urlList.length)},
-                () => getNext()
-            );
+        for (let i = 0; i < urlList.length; i++) {
+            try {
+                const data = await getWithRetry(urlList[i]);
+                results[i] = onLoad(i, data);
+                if (onTick) onTick();
+                // Krátká pauza mezi requesty aby server nebyl přetížen
+                if (i < urlList.length - 1) await new Promise(r => setTimeout(r, 400));
+            } catch(e) {
+                console.warn(`Overwatch: request ${i} selhal po všech retries:`, urlList[i], e.status);
+                results[i] = null; // přeskočit místo pádu celého batche
+                if (onTick) onTick();
+            }
+        }
 
-            Promise.all(workers).then(() => resolve(results)).catch(reject);
-        });
+        return results;
     },
 
     processDefenseData(i, data) {
