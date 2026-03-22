@@ -31,6 +31,9 @@
  *  6. Packet calculator      – click village → pop-up with send-from selector
  *  7. Cache with TTL         – localStorage data refreshed after configurable minutes
  *  8. Batch requests         – parallel requests instead of serial 200 ms stagger
+ *
+ * BOOKMARKLET USAGE:
+ *  javascript:(function(){var s=document.createElement('script');s.src='YOUR_RAW_GITHUB_URL/overwatch.js?_='+Date.now();document.head.appendChild(s);})();
  */
 
 // ─── Guard: redirect to map page if not already there ───────────────────────
@@ -41,13 +44,13 @@ if (window.location.href.indexOf('screen=map') < 0) {
 // ═══════════════════════════════════════════════════════════════════════════════
 //  CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════
-var WATCHTOWER_RADIUS = [1.1,1.3,1.5,1.7,2,2.3,2.6,3,3.4,3.9,4.4,5.1,5.8,6.7,7.6,8.7,10,11.5,13.1,15];
+var WATCHTOWER_RADIUS = [1.1, 1.3, 1.5, 1.7, 2, 2.3, 2.6, 3, 3.4, 3.9, 4.4, 5.1, 5.8, 6.7, 7.6, 8.7, 10, 11.5, 13.1, 15];
 var DEFAULT_COLORS = [
-    {color:"#FF0000",opacity:0.3},{color:"#FF5100",opacity:0.3},{color:"#FFAE00",opacity:0.3},
-    {color:"#F2FF00",opacity:0.3},{color:"#B7FF00",opacity:0.3},{color:"#62FF00",opacity:0.3},
-    {color:"#04FF00",opacity:0.3},{color:"#00FF7B",opacity:0.3},{color:"#00FFAE",opacity:0.3},
-    {color:"#00C8FF",opacity:0.3},{color:"#006AFF",opacity:0.3},{color:"#1500FF",opacity:0.3},
-    {color:"#4000FF",opacity:0.3},{color:"#8C00FF",opacity:0.3},{color:"#FF00D9",opacity:0.3}
+    { color: "#FF0000", opacity: 0.3 }, { color: "#FF5100", opacity: 0.3 }, { color: "#FFAE00", opacity: 0.3 },
+    { color: "#F2FF00", opacity: 0.3 }, { color: "#B7FF00", opacity: 0.3 }, { color: "#62FF00", opacity: 0.3 },
+    { color: "#04FF00", opacity: 0.3 }, { color: "#00FF7B", opacity: 0.3 }, { color: "#00FFAE", opacity: 0.3 },
+    { color: "#00C8FF", opacity: 0.3 }, { color: "#006AFF", opacity: 0.3 }, { color: "#1500FF", opacity: 0.3 },
+    { color: "#4000FF", opacity: 0.3 }, { color: "#8C00FF", opacity: 0.3 }, { color: "#FF00D9", opacity: 0.3 }
 ];
 var CACHE_TTL_DEFAULT = 30; // minutes
 var TREND_MAX_SNAPSHOTS = 24;
@@ -69,7 +72,7 @@ let stackHistory = {};
 let ownVillages = [];
 
 // Images for map overlay
-var images = Array.from({length:3}, () => new Image());
+var images = Array.from({ length: 3 }, () => new Image());
 images[0].src = '/graphic//map/incoming_attack.webp';
 images[1].src = '/graphic/buildings/wall.webp';
 images[2].src = '/graphic/buildings/farm.webp';
@@ -111,6 +114,8 @@ $('#contentContainer').eq(0).prepend(`<style>
     #owPacketCalc td{padding:2px 6px;}
     #ow-progress-wrap{position:fixed;top:0;left:0;right:0;z-index:99999;background:#7d510f;height:4px;}
     #ow-progress-bar{height:4px;background:#f4e4bc;width:0%;transition:width .2s;}
+    canvas[data-ow]{pointer-events:none!important;}
+    canvas[data-ow-mini]{pointer-events:none!important;}
 </style>`);
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -121,7 +126,7 @@ function showNotification(msg, duration = 3000) {
     if (!x) return;
     x.innerText = msg;
     x.className = 'show';
-    setTimeout(() => { x.className = x.className.replace('show',''); }, duration);
+    setTimeout(() => { x.className = x.className.replace('show', ''); }, duration);
 }
 
 function numberWithCommas(x) {
@@ -157,26 +162,26 @@ var SettingsManager = {
         const stored = localStorage.getItem('overwatchSettings');
         if (stored) {
             try {
-                settingsData    = JSON.parse(stored);
-                packetSize      = settingsData.packetSize  || 1000;
-                minimum         = settingsData.minimum     || 500;
-                smallStack      = settingsData.smallStack  || 20000;
-                mediumStack     = settingsData.mediumStack || 40000;
-                bigStack        = settingsData.bigStack    || 60000;
-                unitPopValues   = settingsData.unitPopValues || this._defaultUnits();
-                cacheTTL        = settingsData.cacheTTL    || CACHE_TTL_DEFAULT;
+                settingsData = JSON.parse(stored);
+                packetSize = settingsData.packetSize || 1000;
+                minimum = settingsData.minimum || 500;
+                smallStack = settingsData.smallStack || 20000;
+                mediumStack = settingsData.mediumStack || 40000;
+                bigStack = settingsData.bigStack || 60000;
+                unitPopValues = settingsData.unitPopValues || this._defaultUnits();
+                cacheTTL = settingsData.cacheTTL || CACHE_TTL_DEFAULT;
                 targetStackSize = bigStack;
                 if (settingsData.playerSettings && playerData.length) {
                     settingsData.playerSettings.forEach((ps, i) => {
                         if (playerData[i]) {
-                            playerData[i].color        = ps[0] && ps[0].color;
-                            playerData[i].opacity      = ps[0] && parseFloat(ps[0].opacity);
-                            playerData[i].checkedWT    = ps[1] && ps[1].checkedWT;
-                            playerData[i].checkedWTMini= ps[1] && ps[1].checkedWTMini;
+                            playerData[i].color = ps[0] && ps[0].color;
+                            playerData[i].opacity = ps[0] && parseFloat(ps[0].opacity);
+                            playerData[i].checkedWT = ps[1] && ps[1].checkedWT;
+                            playerData[i].checkedWTMini = ps[1] && ps[1].checkedWTMini;
                         }
                     });
                 }
-            } catch(e) {
+            } catch (e) {
                 console.warn('Overwatch: failed to parse settings, resetting.', e);
                 this.setDefaults();
             }
@@ -185,32 +190,32 @@ var SettingsManager = {
         }
         const hist = localStorage.getItem('overwatchStackHistory');
         if (hist) {
-            try { stackHistory = JSON.parse(hist); } catch(e) { stackHistory = {}; }
+            try { stackHistory = JSON.parse(hist); } catch (e) { stackHistory = {}; }
         }
     },
 
     _defaultUnits() {
-        return {spear:1,sword:1,archer:1,axe:0,spy:0,light:0,marcher:0,heavy:4,catapult:2,ram:0,knight:2,militia:1,snob:0};
+        return { spear: 1, sword: 1, archer: 1, axe: 0, spy: 0, light: 0, marcher: 0, heavy: 4, catapult: 2, ram: 0, knight: 2, militia: 1, snob: 0 };
     },
 
     setDefaults() {
-        unitPopValues   = this._defaultUnits();
-        packetSize      = 1000;
-        minimum         = 500;
-        smallStack      = 20000;
-        mediumStack     = 40000;
-        bigStack        = 60000;
-        cacheTTL        = CACHE_TTL_DEFAULT;
+        unitPopValues = this._defaultUnits();
+        packetSize = 1000;
+        minimum = 500;
+        smallStack = 20000;
+        mediumStack = 40000;
+        bigStack = 60000;
+        cacheTTL = CACHE_TTL_DEFAULT;
         targetStackSize = bigStack;
         this.save();
     },
 
     save() {
         const playerSettings = playerData.map(player => [
-            {color: player.color, opacity: player.opacity},
-            {checkedWT: player.checkedWT, checkedWTMini: player.checkedWTMini}
+            { color: player.color, opacity: player.opacity },
+            { checkedWT: player.checkedWT, checkedWTMini: player.checkedWTMini }
         ]);
-        const data = {packetSize, minimum, smallStack, mediumStack, bigStack, cacheTTL, playerSettings, unitPopValues};
+        const data = { packetSize, minimum, smallStack, mediumStack, bigStack, cacheTTL, playerSettings, unitPopValues };
         localStorage.setItem('overwatchSettings', JSON.stringify(data));
         showNotification('Settings saved');
     },
@@ -221,15 +226,15 @@ var SettingsManager = {
             if (el) unitPopValues[unit] = parseFloat(el.value) || 0;
         });
         packetSize = parseFloat($('#packetSize').val()) || 1000;
-        cacheTTL   = parseFloat($('#cacheTTL').val())   || CACHE_TTL_DEFAULT;
+        cacheTTL = parseFloat($('#cacheTTL').val()) || CACHE_TTL_DEFAULT;
         playerData.forEach(player => {
-            const id = player.playerID.replace(/[\s()]/g,'');
+            const id = player.playerID.replace(/[\s()]/g, '');
             const valEl = document.getElementById('val' + id);
             const alpEl = document.getElementById('alp' + id);
-            if (valEl) player.color   = valEl.value;
+            if (valEl) player.color = valEl.value;
             if (alpEl) player.opacity = parseFloat(alpEl.value) || 0.3;
-            player.checkedWT    = !!$('#checkMapWT'  + id).prop('checked');
-            player.checkedWTMini= !!$('#checkWTMini' + id).prop('checked');
+            player.checkedWT = !!$('#checkMapWT' + id).prop('checked');
+            player.checkedWTMini = !!$('#checkWTMini' + id).prop('checked');
         });
     }
 };
@@ -242,7 +247,7 @@ var TrendManager = {
         const ts = Date.now();
         targetData.forEach(v => {
             if (!stackHistory[v.coord]) stackHistory[v.coord] = [];
-            stackHistory[v.coord].push({ts, stack: v.totalStack});
+            stackHistory[v.coord].push({ ts, stack: v.totalStack });
             if (stackHistory[v.coord].length > TREND_MAX_SNAPSHOTS)
                 stackHistory[v.coord].shift();
         });
@@ -252,15 +257,15 @@ var TrendManager = {
     getTrend(coord) {
         const hist = stackHistory[coord];
         if (!hist || hist.length < 2) return 0;
-        const last  = hist[hist.length - 1].stack;
-        const prev  = hist[hist.length - 2].stack;
+        const last = hist[hist.length - 1].stack;
+        const prev = hist[hist.length - 2].stack;
         return last - prev;
     },
 
     getTrendArrow(coord) {
         const delta = this.getTrend(coord);
-        if (delta > 0)  return '<span class="ow-trend-up">↑</span>';
-        if (delta < 0)  return '<span class="ow-trend-down">↓</span>';
+        if (delta > 0) return '<span class="ow-trend-up">↑</span>';
+        if (delta < 0) return '<span class="ow-trend-down">↓</span>';
         return '–';
     }
 };
@@ -280,11 +285,11 @@ var NotificationManager = {
     checkNewAttacks() {
         targetData.forEach(v => {
             const prev = this._prevAttacks[v.coord] || 0;
-            const cur  = parseInt(v.incomingAttacks) || 0;
+            const cur = parseInt(v.incomingAttacks) || 0;
             if (cur > prev && prev !== 0) {
                 this._sendBrowserNotification(
                     `New incoming! ${v.coord}`,
-                    `${v.playerName} – ${cur} attack(s) incoming. Stack: ${numberWithCommas(Math.floor(v.totalStack/1000))}k`
+                    `${v.playerName} – ${cur} attack(s) incoming. Stack: ${numberWithCommas(Math.floor(v.totalStack / 1000))}k`
                 );
             }
             this._prevAttacks[v.coord] = cur;
@@ -293,7 +298,7 @@ var NotificationManager = {
 
     _sendBrowserNotification(title, body) {
         if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification(title, {body, icon: '/graphic//map/incoming_attack.webp'});
+            new Notification(title, { body, icon: '/graphic//map/incoming_attack.webp' });
         } else {
             showNotification(title + ' – ' + body, 5000);
         }
@@ -306,10 +311,10 @@ var NotificationManager = {
 var Calculator = {
     getStackColor(stack) {
         stack = parseFloat(stack) || 0;
-        if (stack <= minimum)                              return 'rgba(117,255,255,0.5)';
-        if (stack > minimum  && stack <= smallStack)       return 'rgba(0,0,0,0.5)';
-        if (stack > smallStack  && stack <= mediumStack)   return 'rgba(255,0,0,0.5)';
-        if (stack > mediumStack && stack <= bigStack)      return 'rgba(255,255,0,0.5)';
+        if (stack <= minimum) return 'rgba(117,255,255,0.5)';
+        if (stack > minimum && stack <= smallStack) return 'rgba(0,0,0,0.5)';
+        if (stack > smallStack && stack <= mediumStack) return 'rgba(255,0,0,0.5)';
+        if (stack > mediumStack && stack <= bigStack) return 'rgba(255,255,0,0.5)';
         return 'rgba(0,255,0,0.5)';
     },
 
@@ -323,10 +328,10 @@ var Calculator = {
 // ═══════════════════════════════════════════════════════════════════════════════
 var FilterManager = {
     FILTERS: {
-        'empty'    : v => (parseFloat(v.totalStack)    || 0) <= (parseFloat(minimum) || 0),
-        'attacked' : v => (parseInt(v.incomingAttacks) || 0) > 0,
-        'lowwall'  : v => { const w = parseInt(v.wall); return !isNaN(w) && w < 20; },
-        'hasWT'    : v => (parseInt(v.watchtower)      || 0) > 0,
+        'empty': v => (parseFloat(v.totalStack) || 0) <= (parseFloat(minimum) || 0),
+        'attacked': v => (parseInt(v.incomingAttacks) || 0) > 0,
+        'lowwall': v => { const w = parseInt(v.wall); return !isNaN(w) && w < 20; },
+        'hasWT': v => (parseInt(v.watchtower) || 0) > 0,
     },
 
     passes(village) {
@@ -349,8 +354,8 @@ var FilterManager = {
 // ═══════════════════════════════════════════════════════════════════════════════
 var CSVExporter = {
     export() {
-        const header = ['Coordinate','Player','Tribe','Current Stack','Total Stack','Packets Needed',
-                        'Incoming Attacks','Wall','Watchtower','Trend'];
+        const header = ['Coordinate', 'Player', 'Tribe', 'Current Stack', 'Total Stack', 'Packets Needed',
+            'Incoming Attacks', 'Wall', 'Watchtower', 'Trend'];
         const rows = targetData.map(v => [
             v.coord, v.playerName, v.tribeName,
             Math.floor(v.currentStack), Math.floor(v.totalStack),
@@ -409,8 +414,10 @@ var PacketCalculator = {
             </div>
         `);
 
-        popup.css({top: clamp(event.clientY - 20, 10, window.innerHeight - 300),
-                   left: clamp(event.clientX + 10, 10, window.innerWidth - 360)});
+        popup.css({
+            top: clamp(event.clientY - 20, 10, window.innerHeight - 300),
+            left: clamp(event.clientX + 10, 10, window.innerWidth - 360)
+        });
         $('body').append(popup);
 
         $('#owPCClose').on('click', () => $('#owPacketCalc').remove());
@@ -442,14 +449,14 @@ var PacketCalculator = {
 var DataManager = {
     async fetchPlayerIDs() {
         const membersDef = await $.get('/game.php?screen=ally&mode=members_defense');
-        options   = $(membersDef).find('.input-nicer option:not(:first)');
+        options = $(membersDef).find('.input-nicer option:not(:first)');
         playerIDs = options.map((_, o) => o.value).get();
-        urls      = playerIDs.map(id => `/game.php?screen=ally&mode=members_defense&player_id=${id}`);
+        urls = playerIDs.map(id => `/game.php?screen=ally&mode=members_defense&player_id=${id}`);
     },
 
     async fetchBuildingIDs() {
         const membersBuildings = await $.get('/game.php?screen=ally&mode=members_buildings');
-        const buildingOptions  = $(membersBuildings).find('.input-nicer option:not(:first)');
+        const buildingOptions = $(membersBuildings).find('.input-nicer option:not(:first)');
         const ids = buildingOptions.map((_, o) => o.value).get();
         buildingUrls = ids.map(id => `/game.php?screen=ally&mode=members_buildings&player_id=${id}`);
     },
@@ -459,21 +466,20 @@ var DataManager = {
             const page = await $.get('/game.php?screen=overview_villages&mode=combined');
             $(page).find('#combined_table tr:not(:first)').each((_, row) => {
                 const coordMatch = $(row).find('td:first').text().match(/(\d+)\|(\d+)/);
-                const name       = $(row).find('td:nth-child(2) a').text().trim();
-                const id         = $(row).find('td:nth-child(2) a').attr('href')?.match(/village=(\d+)/)?.[1];
-                if (coordMatch && id) ownVillages.push({coord: coordMatch[0], name, id});
+                const name = $(row).find('td:nth-child(2) a').text().trim();
+                const id = $(row).find('td:nth-child(2) a').attr('href')?.match(/village=(\d+)/)?.[1];
+                if (coordMatch && id) ownVillages.push({ coord: coordMatch[0], name, id });
             });
-        } catch(e) { /* non-critical */ }
+        } catch (e) { /* non-critical */ }
     },
 
     async fetchAllData() {
-        const cached   = localStorage.getItem('overwatchPlayerData');
+        const cached = localStorage.getItem('overwatchPlayerData');
         const cachedTs = parseInt(localStorage.getItem('overwatchPlayerDataTs') || 0);
-        const ageMin   = (Date.now() - cachedTs) / 60000;
+        const ageMin = (Date.now() - cachedTs) / 60000;
         if (cached && ageMin < cacheTTL) {
             try {
                 const parsed = JSON.parse(cached);
-                // FIX: validuj cache – nesmí být prázdná
                 if (parsed && parsed.length > 0) {
                     playerData = parsed;
                     showNotification(`Načteno z cache (stáří ${Math.floor(ageMin)}m, TTL ${cacheTTL}m)`);
@@ -486,7 +492,7 @@ var DataManager = {
                     MapRenderer.makeMap();
                     return;
                 }
-            } catch(e) { /* fall through to fresh fetch */ }
+            } catch (e) { /* fall through to fresh fetch */ }
         }
 
         const total = urls.length + buildingUrls.length;
@@ -499,15 +505,14 @@ var DataManager = {
 
         showNotification(`Načítám data pro ${urls.length} hráčů – prosím čekej…`, 60000);
 
-        const defenseData  = await this.batchGetAll(urls,         this.processDefenseData.bind(this),  tick);
+        const defenseData = await this.batchGetAll(urls, this.processDefenseData.bind(this), tick);
         const buildingData = await this.batchGetAll(buildingUrls, this.processBuildingData.bind(this), tick);
 
         setProgress(100);
         this.combineData(defenseData, buildingData);
 
-        // FIX: ulož do cache jen pokud jsou data platná
         if (playerData && playerData.length > 0) {
-            localStorage.setItem('overwatchPlayerData',   JSON.stringify(playerData));
+            localStorage.setItem('overwatchPlayerData', JSON.stringify(playerData));
             localStorage.setItem('overwatchPlayerDataTs', Date.now());
             showNotification(`Data načtena – ${playerData.length} hráčů`, 3000);
         } else {
@@ -523,13 +528,7 @@ var DataManager = {
         MapRenderer.makeMap();
     },
 
-    /**
-     * FIX: sériové zpracování s retry při 429 Too Many Requests.
-     * Paralelní requesty způsobují 429 když jiné skripty (vault-client, dodge atd.)
-     * posílají requesty současně. Řešení: jeden request najednou + exponential backoff.
-     * batchSize parametr zachován pro zpětnou kompatibilitu ale ignorován (vždy =1).
-     */
-    async batchGetAll(urlList, onLoad, onTick, batchSize = 1) {
+    async batchGetAll(urlList, onLoad, onTick, batchSize = 3) {
         const results = new Array(urlList.length);
 
         const getWithRetry = (url, maxRetries = 5) => {
@@ -541,7 +540,7 @@ var DataManager = {
                             if (xhr.status === 429 && retryNum < maxRetries) {
                                 // Exponential backoff: 3s, 6s, 12s, 24s, 48s
                                 const wait = delay * Math.pow(2, retryNum);
-                                showNotification(`Rate limit (429) – čekám ${Math.round(wait/1000)}s…`, wait);
+                                showNotification(`Rate limit (429) – čekám ${Math.round(wait / 1000)}s…`, wait);
                                 setTimeout(() => attempt(retryNum + 1, delay), wait);
                             } else {
                                 reject(xhr);
@@ -552,41 +551,45 @@ var DataManager = {
             });
         };
 
-        for (let i = 0; i < urlList.length; i++) {
-            try {
-                const data = await getWithRetry(urlList[i]);
-                results[i] = onLoad(i, data);
-                if (onTick) onTick();
-                // Krátká pauza mezi requesty aby server nebyl přetížen
-                if (i < urlList.length - 1) await new Promise(r => setTimeout(r, 400));
-            } catch(e) {
-                console.warn(`Overwatch: request ${i} selhal po všech retries:`, urlList[i], e.status);
-                results[i] = null; // přeskočit místo pádu celého batche
-                if (onTick) onTick();
-            }
+        for (let i = 0; i < urlList.length; i += batchSize) {
+            const batch = urlList.slice(i, i + batchSize);
+            const batchPromises = batch.map(async (url, idx) => {
+                const globalIdx = i + idx;
+                try {
+                    const data = await getWithRetry(url);
+                    results[globalIdx] = onLoad(globalIdx, data);
+                    if (onTick) onTick();
+                } catch (e) {
+                    console.warn(`Overwatch: request ${globalIdx} selhal:`, url);
+                    results[globalIdx] = null;
+                    if (onTick) onTick();
+                }
+            });
+            await Promise.all(batchPromises);
+            if (i + batchSize < urlList.length) await new Promise(r => setTimeout(r, 200));
         }
 
         return results;
     },
 
     processDefenseData(i, data) {
-        const playerName  = $(data).find('.input-nicer option:selected').text().trim();
-        const tribeName   = $(data).find('#content_value h2')[0]?.innerText?.split('(')[0]?.trim() || '';
-        const hasIncomings= $(data).find('#ally_content img[src*="unit/att.webp"]').length > 0;
+        const playerName = $(data).find('.input-nicer option:selected').text().trim();
+        const tribeName = $(data).find('#content_value h2')[0]?.innerText?.split('(')[0]?.trim() || '';
+        const hasIncomings = $(data).find('#ally_content img[src*="unit/att.webp"]').length > 0;
         const attackCount = hasIncomings
-            ? $(data).find('.table-responsive table tr:first th:last')[0]?.innerText?.replace(/[^0-9]/g,'') || '0'
+            ? $(data).find('.table-responsive table tr:first th:last')[0]?.innerText?.replace(/[^0-9]/g, '') || '0'
             : 'Tell user to share incomings';
         const playerVillages = this.parseVillages(data, hasIncomings, attackCount);
 
         const saved = settingsData?.playerSettings?.[i];
         const defColor = DEFAULT_COLORS[i % DEFAULT_COLORS.length];
         return {
-            playerID:       playerIDs[i],
+            playerID: playerIDs[i],
             tribeName, playerName, attackCount, playerVillages,
-            color:          (saved?.[0]?.color)              || defColor.color,
-            opacity:        parseFloat(saved?.[0]?.opacity)  || defColor.opacity,
-            checkedWT:      saved?.[1]?.checkedWT            || false,
-            checkedWTMini:  saved?.[1]?.checkedWTMini        || false,
+            color: (saved?.[0]?.color) || defColor.color,
+            opacity: parseFloat(saved?.[0]?.opacity) || defColor.opacity,
+            checkedWT: saved?.[1]?.checkedWT || false,
+            checkedWTMini: saved?.[1]?.checkedWTMini || false,
         };
     },
 
@@ -604,7 +607,7 @@ var DataManager = {
                 let currentPop = 0, totalPop = 0;
 
                 game_data.units.forEach((unit, j) => {
-                    const inTxt  = row0?.children?.[j + 3]?.innerText?.trim() || '0';
+                    const inTxt = row0?.children?.[j + 3]?.innerText?.trim() || '0';
                     const outTxt = row1?.children?.[j + 1]?.innerText?.trim();
                     unitsInVillage[unit] = parseInt(inTxt) || 0;
                     if (outTxt === '?') {
@@ -616,15 +619,15 @@ var DataManager = {
                     }
                     const pop = parseFloat(unitPopValues[unit]) || 0;
                     currentPop += unitsInVillage[unit] * pop;
-                    totalPop   += (unitsInVillage[unit] + unitsEnroute[unit]) * pop;
+                    totalPop += (unitsInVillage[unit] + unitsEnroute[unit]) * pop;
                 });
 
                 const attacksToVillage = hasIncomings
                     ? row0?.children?.[3 + game_data.units.length]?.innerText?.trim() || '0'
                     : '---';
 
-                villages.push({coordinate, currentPop, totalPop, attacksToVillage, unitsInVillage, unitsEnroute});
-            } catch(e) {
+                villages.push({ coordinate, currentPop, totalPop, attacksToVillage, unitsInVillage, unitsEnroute });
+            } catch (e) {
                 console.warn('Overwatch: error parsing village row', i, e);
             }
         }
@@ -634,21 +637,21 @@ var DataManager = {
     processBuildingData(j, buildingTable) {
         const villages = [];
         try {
-            const hasWT      = $(buildingTable).find('#ally_content img[src*="buildings/watchtower.webp"]').length > 0;
-            const cellIndex  = hasWT ? $(buildingTable).find('#ally_content img[src*="buildings/watchtower.webp"]').parent().index() : -1;
-            const wallIndex  = $(buildingTable).find('#ally_content img[src*="buildings/wall.webp"]').parent().index();
-            const rows       = $(buildingTable).find('#ally_content tr:nth-child(n+2)');
+            const hasWT = $(buildingTable).find('#ally_content img[src*="buildings/watchtower.webp"]').length > 0;
+            const cellIndex = hasWT ? $(buildingTable).find('#ally_content img[src*="buildings/watchtower.webp"]').parent().index() : -1;
+            const wallIndex = $(buildingTable).find('#ally_content img[src*="buildings/wall.webp"]').parent().index();
+            const rows = $(buildingTable).find('#ally_content tr:nth-child(n+2)');
             rows.each((_, row) => {
                 try {
                     const coordMatch = $(row).children(0).text().match(/\d+\|\d+/);
                     if (!coordMatch) return;
-                    const coordinate  = coordMatch[0];
-                    const watchtower  = hasWT ? parseInt($($(row).find('td')[cellIndex]).text().trim()) || 0 : 0;
-                    const wall        = parseInt($($(row).find('td')[wallIndex]).text().trim()) || 0;
-                    villages.push({coordinate, watchtower, wall});
-                } catch(e) { /* skip malformed row */ }
+                    const coordinate = coordMatch[0];
+                    const watchtower = hasWT ? parseInt($($(row).find('td')[cellIndex]).text().trim()) || 0 : 0;
+                    const wall = parseInt($($(row).find('td')[wallIndex]).text().trim()) || 0;
+                    villages.push({ coordinate, watchtower, wall });
+                } catch (e) { /* skip malformed row */ }
             });
-        } catch(e) { console.warn('Overwatch: error parsing buildings', e); }
+        } catch (e) { console.warn('Overwatch: error parsing buildings', e); }
         return villages;
     },
 
@@ -659,7 +662,7 @@ var DataManager = {
             (player.playerVillages || []).forEach(village => {
                 const build = buildings.find(b => b.coordinate === village.coordinate);
                 village.watchtower = build ? build.watchtower : 0;
-                village.wall       = build ? build.wall : '---';
+                village.wall = build ? build.wall : '---';
             });
             return player;
         }).filter(Boolean);
@@ -668,12 +671,12 @@ var DataManager = {
     setupMapInterceptors() {
         if (!TWMap?.popup) return;
         const origReceived = TWMap.popup.receivedPopupInformationForSingleVillage;
-        TWMap.popup.receivedPopupInformationForSingleVillage = function(e) {
+        TWMap.popup.receivedPopupInformationForSingleVillage = function (e) {
             origReceived.call(TWMap.popup, e);
             if (e && Object.keys(e).length > 0) MapRenderer.makeOutput(e);
         };
         const origDisplay = TWMap.popup.displayForVillage;
-        TWMap.popup.displayForVillage = function(e, a, t) {
+        TWMap.popup.displayForVillage = function (e, a, t) {
             origDisplay.call(TWMap.popup, e, a, t);
             if (e && Object.keys(e).length > 0) MapRenderer.makeOutput(e);
         };
@@ -689,36 +692,38 @@ var UIManager = {
         $('#contentContainer').prepend(this.buildUI());
         this.setupEventListeners();
         this.setInitialValues();
-        try { $('#tribeLeaderUI').draggable(); } catch(e) {}
+        try { $('#tribeLeaderUI').draggable(); } catch (e) { }
     },
 
     buildUI() {
         return `
         <div id="overwatchNotification">Placeholder</div>
-        <div id="tribeLeaderUI" class="ui-widget-content vis" style="min-width:200px;background:#f4e4bc;position:fixed;cursor:move;z-index:999;top:60px;right:20px;">
-            <div style="min-height:35px">
-                <h3 id="titleOverwatch" style="display:none;margin:auto;text-align:center;padding-top:6px">Overwatch</h3>
-                <img id="toggleIcon" style="position:absolute;left:20px;top:10px;" class="widget-button" src="graphic/minus.png"/>
+        <div id="tribeLeaderUI" class="ui-widget-content vis" style="min-width:300px;background:rgba(20, 0, 0, 0.85);backdrop-filter:blur(10px);color:#eaeaea;border:1px solid #d4af37;position:fixed;cursor:move;z-index:999;top:60px;right:20px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.8), inset 0 0 15px rgba(212,175,55,0.1);padding-bottom:10px;font-family:system-ui, -apple-system, sans-serif;">
+            <div style="min-height:35px; padding:10px;">
+                <div id="owHeaderBar" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid rgba(212,175,55,0.2);margin:-10px -10px 10px -10px;border-radius:12px 12px 0 0;">
+                    <span style="color:#d4af37;font-weight:800;font-size:14px;letter-spacing:2px;text-transform:uppercase;text-shadow:0 0 5px rgba(212,175,55,0.5);">MAP OVERVIEW</span>
+                    <button id="owMinimizeBtn" style="background:none;border:1px solid rgba(212,175,55,0.3);color:#d4af37;font-size:16px;cursor:pointer;padding:2px 8px;border-radius:4px;transition:all .2s;" title="Minimize">–</button>
+                </div>
                 <div id="toggleUi">
                     ${this.buildFilterBar()}
                     <center>
-                        <table style="margin:30px 20px">
+                        <table style="margin:20px 10px; border-collapse: separate; border-spacing: 4px;">
                             <tr>
-                                <td><input type="button" class="btn evt-confirm-btn btn-confirm-yes" id="playerSettingsButton" value="Player settings"/></td>
-                                <td><input type="button" class="btn evt-confirm-btn btn-confirm-yes" id="stackSizeButton" value="Stack settings"/></td>
-                                <td><input type="button" class="btn evt-confirm-btn btn-confirm-yes" id="stackListButton" value="Stack list"/></td>
-                                <td><input type="button" class="btn evt-confirm-btn btn-confirm-yes" id="importExportButton" value="Import/Export"/></td>
+                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="playerSettingsButton" value="Player settings"/></td>
+                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="stackSizeButton" value="Stack settings"/></td>
+                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="stackListButton" value="Stack list"/></td>
+                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="importExportButton" value="Import/Export"/></td>
                             </tr>
                         </table>
                         ${this.buildPlayerSettingsTab()}
                         ${this.buildStackSizeTab()}
                         ${this.buildStackListTab()}
                         ${this.buildImportExportTab()}
-                        <div style="margin:20px 20px">
-                            <a href="#" class="btn btn-default" id="redrawMapBtn">Redraw map</a>
-                            <a href="#" class="btn btn-default" id="refreshDataBtn" style="margin-left:6px;">Refresh data</a>
-                            <br><small style="margin-top:10px">Overwatch v2.1 – Script by Sass / STK</small>
+                        <div style="margin:20px 20px 5px 20px;">
+                            <a href="#" class="btn btn-default" id="redrawMapBtn" style="background:rgba(212,175,55,0.2);color:#d4af37;border:1px solid #d4af37;padding:5px 10px;border-radius:4px;text-decoration:none;">Redraw map</a>
+                            <a href="#" class="btn btn-default" id="refreshDataBtn" style="background:rgba(212,175,55,0.2);color:#d4af37;border:1px solid #d4af37;padding:5px 10px;border-radius:4px;text-decoration:none;margin-left:6px;">Refresh data</a>
                         </div>
+                        <div style="text-align:right; margin-top:15px; margin-right:5px; color:#555; font-size:9px; font-weight:bold; cursor:help; letter-spacing:1px;" title="B4LD PH4NT0M">Powered by TheBrain🧠</div>
                     </center>
                 </div>
             </div>
@@ -729,10 +734,10 @@ var UIManager = {
         return `
         <div id="owFilterBar">
             <span style="font-size:12px;font-weight:bold;align-self:center">Filter:</span>
-            <button class="ow-filter-btn${activeFilters.has('empty')    ? ' active' : ''}" data-filter="empty">Empty</button>
+            <button class="ow-filter-btn${activeFilters.has('empty') ? ' active' : ''}" data-filter="empty">Empty</button>
             <button class="ow-filter-btn${activeFilters.has('attacked') ? ' active' : ''}" data-filter="attacked">Under attack</button>
-            <button class="ow-filter-btn${activeFilters.has('lowwall')  ? ' active' : ''}" data-filter="lowwall">Wall &lt;20</button>
-            <button class="ow-filter-btn${activeFilters.has('hasWT')    ? ' active' : ''}" data-filter="hasWT">Has WT</button>
+            <button class="ow-filter-btn${activeFilters.has('lowwall') ? ' active' : ''}" data-filter="lowwall">Wall &lt;20</button>
+            <button class="ow-filter-btn${activeFilters.has('hasWT') ? ' active' : ''}" data-filter="hasWT">Has WT</button>
             <button class="ow-filter-btn" id="clearFiltersBtn">✕ Clear</button>
         </div>`;
     },
@@ -744,21 +749,21 @@ var UIManager = {
             <div style="max-height:600px!important;overflow-y:auto;margin:30px;width:fit-content;">
             <table class="vis overviewWithPadding" style="border:1px solid #7d510f;min-width:600px;max-width:900px;">
                 <thead><tr>
-                    <th>Player name</th>
-                    ${hasWT ? '<th style="width:80px;text-align:center;">Map WT</th><th style="width:80px;text-align:center;">Minimap WT</th>' : ''}
-                    <th style="width:80px;text-align:center;">Map color</th>
-                    <th>Incoming attacks</th>
-                    <th>Villages</th>
+                    <th style="color:#000;">Player name</th>
+                    ${hasWT ? '<th style="width:80px;text-align:center;color:#000;">Map WT</th><th style="width:80px;text-align:center;color:#000;">Minimap WT</th>' : ''}
+                    <th style="width:80px;text-align:center;color:#000;">Map color</th>
+                    <th style="color:#000;">Incoming attacks</th>
+                    <th style="color:#000;">Villages</th>
                 </tr></thead>
                 <tbody>`;
         playerData.forEach((player, i) => {
-            const color   = player.color   || DEFAULT_COLORS[i % DEFAULT_COLORS.length].color;
+            const color = player.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length].color;
             const opacity = player.opacity != null ? player.opacity : DEFAULT_COLORS[i % DEFAULT_COLORS.length].opacity;
-            const id      = player.playerID.replace(/[\s()]/g,'');
-            const rowClass= i % 2 === 0 ? 'row_b' : 'row_a';
+            const id = player.playerID.replace(/[\s()]/g, '');
+            const rowClass = i % 2 === 0 ? 'row_b' : 'row_a';
             html += `
             <tr class="${rowClass}">
-                <td>${player.playerName}</td>
+                <td style="color:#000;">${player.playerName}</td>
                 ${hasWT ? `
                 <td><center><input id="checkMapWT${id}" type="checkbox" ${player.checkedWT ? 'checked' : ''}></center></td>
                 <td><center><input id="checkWTMini${id}" type="checkbox" ${player.checkedWTMini ? 'checked' : ''}></center></td>` : ''}
@@ -767,8 +772,8 @@ var UIManager = {
                     <input id="val${id}" value="${color}" type="hidden">
                     <input id="alp${id}" value="${opacity}" type="hidden">
                 </center></td>
-                <td>${player.attackCount}</td>
-                <td>${(player.playerVillages||[]).length}</td>
+                <td style="color:#000;">${player.attackCount}</td>
+                <td style="color:#000;">${(player.playerVillages || []).length}</td>
             </tr>`;
         });
         html += `
@@ -831,9 +836,9 @@ var UIManager = {
                     <th style="text-align:center" width="35"><img src="https://dsus.innogamescdn.com/asset/a9e85669/graphic/unit/unit_militia.png" title="Militia"></th>
                 </tr></thead>
                 <tbody><tr>
-                    ${['spear','sword','axe','archer','spy','light','marcher','heavy','ram','catapult','knight','snob','militia'].map(u =>
-                        `<td align="center"><input type="text" onchange="SettingsManager.save();" name="${u}" id="${u}" size="2" value="${unitPopValues[u]||0}"></td>`
-                    ).join('')}
+                    ${['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob', 'militia'].map(u =>
+            `<td align="center"><input type="text" onchange="SettingsManager.save();" name="${u}" id="${u}" size="2" value="${unitPopValues[u] || 0}"></td>`
+        ).join('')}
                 </tr></tbody>
             </table>
             <table class="vis overviewWithPadding" style="border:1px solid #7d510f;margin:20px;">
@@ -885,14 +890,14 @@ var UIManager = {
     },
 
     setupEventListeners() {
-        $('#checkAllWT').click(function() {
+        $('#checkAllWT').click(function () {
             $('input:checkbox[id^="checkMapWT"]').not(this).prop('checked', this.checked);
         });
-        $('#checkAllWTMini').click(function() {
+        $('#checkAllWTMini').click(function () {
             $('input:checkbox[id^="checkWTMini"]').not(this).prop('checked', this.checked);
         });
 
-        $(document).on('click', '.ow-filter-btn[data-filter]', function() {
+        $(document).on('click', '.ow-filter-btn[data-filter]', function () {
             FilterManager.toggle($(this).data('filter'));
         });
         $(document).on('click', '#clearFiltersBtn', () => {
@@ -902,9 +907,9 @@ var UIManager = {
 
         this._setupSliders();
 
-        $('#toggleIcon').click(() => UIManager.toggleUI());
+        $('#owMinimizeBtn').click(() => UIManager.toggleUI());
 
-        ['playerSettings','stackSize','stackList','importExport'].forEach(cat => {
+        ['playerSettings', 'stackSize', 'stackList', 'importExport'].forEach(cat => {
             $(`#${cat}Button`).click(() => UIManager.displayCategory(cat));
         });
 
@@ -917,9 +922,9 @@ var UIManager = {
             setTimeout(() => location.reload(), 800);
         });
 
-        $(document).on('click', '#exportBtn',     e => { e.preventDefault(); exportData(); });
-        $(document).on('click', '#exportCsvBtn',  e => { e.preventDefault(); CSVExporter.export(); });
-        $(document).on('click', '#importBtn',     e => { e.preventDefault(); importData(); });
+        $(document).on('click', '#exportBtn', e => { e.preventDefault(); exportData(); });
+        $(document).on('click', '#exportCsvBtn', e => { e.preventDefault(); CSVExporter.export(); });
+        $(document).on('click', '#importBtn', e => { e.preventDefault(); importData(); });
         $(document).on('click', '#clearCacheBtn', e => {
             e.preventDefault();
             localStorage.removeItem('overwatchPlayerData');
@@ -934,24 +939,24 @@ var UIManager = {
             MapRenderer.makeMap();
         });
 
-        $(document).on('click', function(e) {
+        $(document).on('click', function (e) {
             if (!$(e.target).closest('#owPacketCalc, canvas').length) $('#owPacketCalc').remove();
         });
     },
 
     _setupSliders() {
-        const inputLeft  = document.getElementById('input-left');
+        const inputLeft = document.getElementById('input-left');
         const inputRight = document.getElementById('input-right');
         if (!inputLeft || !inputRight) return;
-        const thumbLeft  = document.querySelector('.slider > .thumb.left');
+        const thumbLeft = document.querySelector('.slider > .thumb.left');
         const thumbRight = document.querySelector('.slider > .thumb.right');
-        const range      = document.querySelector('.slider > .range');
+        const range = document.querySelector('.slider > .range');
 
         const setLeft = () => {
             inputLeft.value = Math.min(parseInt(inputLeft.value), parseInt(inputRight.value) - 1);
             const pct = ((inputLeft.value - inputLeft.min) / (inputLeft.max - inputLeft.min)) * 100;
             thumbLeft.style.left = pct + '%';
-            range.style.left     = pct + '%';
+            range.style.left = pct + '%';
             smallStack = Math.round(bigStack * pct / 100);
             $('#smallStack').val(smallStack);
             _updateTrack();
@@ -960,7 +965,7 @@ var UIManager = {
             inputRight.value = Math.max(parseInt(inputRight.value), parseInt(inputLeft.value) + 1);
             const pct = ((inputRight.value - inputRight.min) / (inputRight.max - inputRight.min)) * 100;
             thumbRight.style.right = (100 - pct) + '%';
-            range.style.right      = (100 - pct) + '%';
+            range.style.right = (100 - pct) + '%';
             mediumStack = Math.round(bigStack * pct / 100);
             $('#mediumStack').val(mediumStack);
             _updateTrack();
@@ -969,24 +974,24 @@ var UIManager = {
             const lv = parseInt(inputLeft.value), rv = parseInt(inputRight.value);
             const minPct = (minimum / bigStack) * 100;
             $('.track').css('background-image',
-                `linear-gradient(to right,#75FFFF,black ${minPct}%,black ${lv-10}%,red ${lv}%,red ${rv}%,yellow ${rv+10}%,yellow 95%,green)`);
+                `linear-gradient(to right,#75FFFF,black ${minPct}%,black ${lv - 10}%,red ${lv}%,red ${rv}%,yellow ${rv + 10}%,yellow 95%,green)`);
         };
 
         setLeft(); setRight();
         inputLeft.addEventListener('input', setLeft);
         inputRight.addEventListener('input', setRight);
-        ['mouseover','mouseout','mousedown','mouseup'].forEach(ev => {
+        ['mouseover', 'mouseout', 'mousedown', 'mouseup'].forEach(ev => {
             inputLeft.addEventListener(ev, () => {
-                if (ev==='mouseover') thumbLeft.classList.add('hover');
-                if (ev==='mouseout')  thumbLeft.classList.remove('hover');
-                if (ev==='mousedown') thumbLeft.classList.add('active');
-                if (ev==='mouseup')   { thumbLeft.classList.remove('active'); SettingsManager.save(); }
+                if (ev === 'mouseover') thumbLeft.classList.add('hover');
+                if (ev === 'mouseout') thumbLeft.classList.remove('hover');
+                if (ev === 'mousedown') thumbLeft.classList.add('active');
+                if (ev === 'mouseup') { thumbLeft.classList.remove('active'); SettingsManager.save(); }
             });
             inputRight.addEventListener(ev, () => {
-                if (ev==='mouseover') thumbRight.classList.add('hover');
-                if (ev==='mouseout')  thumbRight.classList.remove('hover');
-                if (ev==='mousedown') thumbRight.classList.add('active');
-                if (ev==='mouseup')   { thumbRight.classList.remove('active'); SettingsManager.save(); }
+                if (ev === 'mouseover') thumbRight.classList.add('hover');
+                if (ev === 'mouseout') thumbRight.classList.remove('hover');
+                if (ev === 'mousedown') thumbRight.classList.add('active');
+                if (ev === 'mouseup') { thumbRight.classList.remove('active'); SettingsManager.save(); }
             });
         });
         $('.multi-range-slider, .slider, input[type=range]').on('mousedown touchstart', e => e.stopPropagation());
@@ -1003,19 +1008,25 @@ var UIManager = {
     },
 
     displayCategory(cat) {
-        const all = ['stackList','stackSize','playerSettings','importExport'];
+        const all = ['stackList', 'stackSize', 'playerSettings', 'importExport'];
         $(`#${cat}`).show();
-        $(`#${cat}Button`).attr('class','btn evt-cancel-btn btn-confirm-yes');
+        $(`#${cat}Button`).attr('class', 'btn evt-cancel-btn btn-confirm-yes');
         all.filter(c => c !== cat).forEach(c => {
             $(`#${c}`).hide();
-            $(`#${c}Button`).attr('class','btn evt-confirm-btn btn-confirm-no');
+            $(`#${c}Button`).attr('class', 'btn evt-confirm-btn btn-confirm-no');
         });
     },
 
     toggleUI() {
-        const icon = $('#toggleIcon');
-        icon.attr('src', icon.attr('src').includes('minus.png') ? 'graphic/plus.png' : 'graphic/minus.png');
-        $('#toggleUi, #titleOverwatch').toggle();
+        const btn = document.getElementById('owMinimizeBtn');
+        const content = document.getElementById('toggleUi');
+        if (!content) return;
+        const isVisible = content.style.display !== 'none';
+        content.style.display = isVisible ? 'none' : '';
+        if (btn) {
+            btn.textContent = isVisible ? '+' : '\u2013';
+            btn.title = isVisible ? 'Maximize' : 'Minimize';
+        }
     }
 };
 
@@ -1023,7 +1034,7 @@ var UIManager = {
 //  MAP RENDERER
 // ═══════════════════════════════════════════════════════════════════════════════
 var MapRenderer = {
-     makeMap() {
+    makeMap() {
         if (!mapOverlay?.mapHandler) return;
 
         if (!TWMap.mapHandler._ow_spawnOrig) {
@@ -1036,73 +1047,81 @@ var MapRenderer = {
         const self = this;
 
         const installHook = () => {
-            TWMap.mapHandler.spawnSector = function(data, sector) {
+            self._currentFilteredData = targetData.filter(element => FilterManager.passes(element)).map(el => {
+                const t = el.coord.split('|');
+                el.tx = parseInt(t[0], 10);
+                el.ty = parseInt(t[1], 10);
+                const wtLevel = parseInt(el.watchtower) || 0;
+                if (wtLevel > 0 && el.checkedWT) {
+                    el.wtr = Math.ceil(WATCHTOWER_RADIUS[wtLevel - 1]);
+                } else {
+                    el.wtr = 0;
+                }
+                return el;
+            });
+
+            TWMap.mapHandler.spawnSector = function (data, sector) {
                 TWMap.mapHandler._ow_spawnOrig.call(TWMap.mapHandler, data, sector);
-                // appendElement strips id/className – use data attribute to find & remove old canvas
                 const root = sector._element_root;
                 if (root) {
                     root.querySelectorAll('[data-ow]').forEach(el => el.remove());
                 }
-                // Also clean minimap
                 document.querySelectorAll('[data-ow-mini]').forEach(el => el.remove());
                 try {
                     self.renderSector(data, sector);
-                } catch(e) {
+                } catch (e) {
                     console.error('Overwatch renderSector error:', e);
                 }
             };
         };
 
-        TWMap.mapHandler.onReload = function() {
+        TWMap.mapHandler.onReload = function () {
             installHook();
             TWMap.mapHandler._ow_reloadOrig.call(TWMap.mapHandler);
         };
 
-        // Remove old overlays via data attribute
         document.querySelectorAll('[data-ow], [data-ow-mini]').forEach(el => el.remove());
         installHook();
         TWMap.mapHandler.onReload();
     },
 
-
     renderSector(data, sector) {
-        // KLÍČOVÉ ZJIŠTĚNÍ z diagnostiky:
-        // data.x/y = souřadnice datového bloku (každý blok = 20 tiles)
-        // Skutečné mapové souřadnice sektoru jsou v ID TW canvasu:
-        // map_canvas_420_565 → sektor začíná na x=420, y=565
-        // sector._element_root obsahuje canvas s tímto ID
-
         const sectorSize = TWMap.map.sectorSize || 5;
         const tileW = TWMap.tileSize[0];
         const tileH = TWMap.tileSize[1];
 
-        // Získej skutečné souřadnice sektoru z TW canvas ID
         const twCanvas = sector._element_root?.querySelector('canvas[id^="map_canvas_"]');
         if (!twCanvas) return;
         const parts = twCanvas.id.replace('map_canvas_', '').split('_');
         const sectorX = parseInt(parts[0]);
         const sectorY = parseInt(parts[1]);
 
-        // Pixel pozice levého horního rohu sektoru
         const sp = TWMap.map.pixelByCoord(sectorX, sectorY);
 
         const canvas = document.createElement('canvas');
-        canvas.width  = tileW * sectorSize;
+        canvas.width = tileW * sectorSize;
         canvas.height = tileH * sectorSize;
         canvas.setAttribute('data-ow', `${sectorX}_${sectorY}`);
-        canvas.style.cssText = 'position:absolute;left:0;top:0;z-index:10;';
+        canvas.style.cssText = 'position:absolute;left:0;top:0;z-index:10;pointer-events:none;';
         const ctx = canvas.getContext('2d');
 
         let canvasUsed = false;
 
-        targetData.forEach(element => {
-            if (!FilterManager.passes(element)) return;
-            const t  = element.coord.split('|');
-            const tx = coordInt(t[0]);
-            const ty = coordInt(t[1]);
+        (this._currentFilteredData || []).forEach(element => {
+            const tx = element.tx;
+            const ty = element.ty;
 
-            if (tx < sectorX || tx >= sectorX + sectorSize) return;
-            if (ty < sectorY || ty >= sectorY + sectorSize) return;
+            const inSector = (tx >= sectorX && tx < sectorX + sectorSize && ty >= sectorY && ty < sectorY + sectorSize);
+
+            let wtOverlaps = false;
+            if (element.wtr > 0) {
+                if (tx >= sectorX - element.wtr && tx < sectorX + sectorSize + element.wtr &&
+                    ty >= sectorY - element.wtr && ty < sectorY + sectorSize + element.wtr) {
+                    wtOverlaps = true;
+                }
+            }
+
+            if (!inSector && !wtOverlaps) return;
 
             canvasUsed = true;
 
@@ -1110,35 +1129,39 @@ var MapRenderer = {
             const ox = (vp[0] - sp[0]) + tileW / 2;
             const oy = (vp[1] - sp[1]) + tileH / 2;
 
-            const curColor = Calculator.getStackColor(element.currentStack);
-            const totColor = Calculator.getStackColor(element.totalStack);
-
-            this.drawLeftTriangle(canvas, ox, oy, curColor);
-            this.drawRightTriangle(canvas, ox, oy, totColor);
-
-            if (parseInt(element.incomingAttacks) > 0) this.iconOnMap(images[0], canvas, ox - 19, oy - 12, 15);
-            if (element.wall !== '---' && parseInt(element.wall) < 20) this.iconOnMap(images[1], canvas, ox + 7, oy - 12, 15);
-            this.iconOnMap(images[2], canvas, ox - 19, oy + 10, 15);
-
-            if (parseInt(element.incomingAttacks) > 0) this.textOnMap(element.incomingAttacks, ctx, ox - 5, oy - 8, 'white', '10px Arial');
-            if (element.wall !== '---' && parseInt(element.wall) < 20) this.textOnMap(element.wall, ctx, ox + 20, oy - 8, 'white', '10px Arial');
-            this.textOnMap(Math.floor(element.totalStack / 1000) + 'k', ctx, ox - 2, oy + 14, 'white', '10px Arial');
-
-            const delta = TrendManager.getTrend(element.coord);
-            if (delta !== 0) {
-                const arrow = delta > 0 ? '↑' : '↓';
-                const col   = delta > 0 ? '#00ff44' : '#ff3300';
-                this.textOnMap(arrow, ctx, ox + 14, oy + 14, col, 'bold 11px Arial');
+            if (wtOverlaps) {
+                this.drawMapTowers(canvas, ox, oy, parseInt(element.watchtower) || 0, element.color, parseFloat(element.opacity));
             }
 
-            if (parseInt(element.watchtower) > 0 && element.checkedWT) {
-                this.drawMapTowers(canvas, ox, oy, element.watchtower, element.color, parseFloat(element.opacity));
-            }
+            if (inSector) {
+                const curColor = Calculator.getStackColor(element.currentStack);
+                const totColor = Calculator.getStackColor(element.totalStack);
 
-            if (selectedVillageSet.has(element.coord)) {
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth   = 2;
-                ctx.strokeRect(ox - tileW/2, oy - tileH/2, tileW, tileH);
+                this.drawLeftTriangle(canvas, ox, oy, curColor);
+                this.drawRightTriangle(canvas, ox, oy, totColor);
+
+                const hasAttacks = parseInt(element.incomingAttacks) > 0;
+
+                if (hasAttacks) this.iconOnMap(images[0], canvas, ox - 24, oy - 14, 22);
+                if (element.wall !== '---' && parseInt(element.wall) < 20) this.iconOnMap(images[1], canvas, ox + 7, oy - 12, 15);
+                this.iconOnMap(images[2], canvas, ox - 19, oy + 10, 15);
+
+                if (hasAttacks) this.textOnMap(element.incomingAttacks, ctx, ox - 4, oy - 6, '#ff4444', 'bold 15px Arial', true);
+                if (element.wall !== '---' && parseInt(element.wall) < 20) this.textOnMap(element.wall, ctx, ox + 20, oy - 8, 'white', '10px Arial');
+                this.textOnMap(Math.floor(element.totalStack / 1000) + 'k', ctx, ox - 2, oy + 14, 'white', '10px Arial');
+
+                const delta = TrendManager.getTrend(element.coord);
+                if (delta !== 0) {
+                    const arrow = delta > 0 ? '↑' : '↓';
+                    const col = delta > 0 ? '#00ff44' : '#ff3300';
+                    this.textOnMap(arrow, ctx, ox + 14, oy + 14, col, 'bold 11px Arial');
+                }
+
+                if (selectedVillageSet.has(element.coord)) {
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(ox - tileW / 2, oy - tileH / 2, tileW, tileH);
+                }
             }
         });
 
@@ -1153,18 +1176,16 @@ var MapRenderer = {
         for (const key in mapOverlay.minimap._loadedSectors) {
             const msec = mapOverlay.minimap._loadedSectors[key];
             const mc = document.createElement('canvas');
-            mc.width  = 250;
+            mc.width = 250;
             mc.height = 250;
             mc.setAttribute('data-ow-mini', key);
             mc.style.cssText = 'position:absolute;z-index:11;';
             let miniUsed = false;
-            targetData.forEach(element => {
-                if (!FilterManager.passes(element)) return;
-                const t = element.coord.split('|');
-                const x = (coordInt(t[0]) - msec.x) * 5 + 3;
-                const y = (coordInt(t[1]) - msec.y) * 5 + 3;
-                if (parseInt(element.watchtower) > 0 && element.checkedWTMini) {
-                    this.drawTopoTowers(mc, x, y, element.watchtower, element.color, parseFloat(element.opacity));
+            (this._currentFilteredData || []).forEach(element => {
+                const x = (element.tx - msec.x) * 5 + 3;
+                const y = (element.ty - msec.y) * 5 + 3;
+                if (element.wtr > 0 && element.checkedWTMini) {
+                    this.drawTopoTowers(mc, x, y, parseInt(element.watchtower) || 0, element.color, parseFloat(element.opacity));
                     miniUsed = true;
                 }
             });
@@ -1174,16 +1195,16 @@ var MapRenderer = {
     },
 
     _drawHeatmap(canvas, sector) {
-        const ctx  = canvas.getContext('2d');
+        const ctx = canvas.getContext('2d');
         const grid = new Float32Array(250 * 250);
         targetData.forEach(el => {
             if (!parseInt(el.watchtower)) return;
-            const t  = el.coord.split('|');
+            const t = el.coord.split('|');
             const cx = (coordInt(t[0]) - sector.x) * 5 + 3;
             const cy = (coordInt(t[1]) - sector.y) * 5 + 3;
-            const r  = Math.round(WATCHTOWER_RADIUS[el.watchtower - 1] * 5);
+            const r = Math.round(WATCHTOWER_RADIUS[el.watchtower - 1] * 5);
             for (let dx = -r; dx <= r; dx++) for (let dy = -r; dy <= r; dy++) {
-                if (dx*dx + dy*dy > r*r) continue;
+                if (dx * dx + dy * dy > r * r) continue;
                 const px = cx + dx, py = cy + dy;
                 if (px < 0 || px >= 250 || py < 0 || py >= 250) continue;
                 grid[py * 250 + px]++;
@@ -1192,10 +1213,10 @@ var MapRenderer = {
         const imageData = ctx.getImageData(0, 0, 250, 250);
         for (let i = 0; i < grid.length; i++) {
             if (grid[i] >= 2) {
-                imageData.data[i*4]   = 255;
-                imageData.data[i*4+1] = 255;
-                imageData.data[i*4+2] = 0;
-                imageData.data[i*4+3] = Math.min(80, grid[i] * 20);
+                imageData.data[i * 4] = 255;
+                imageData.data[i * 4 + 1] = 255;
+                imageData.data[i * 4 + 2] = 0;
+                imageData.data[i * 4 + 3] = Math.min(80, grid[i] * 20);
             }
         }
         ctx.putImageData(imageData, 0, 0);
@@ -1204,34 +1225,34 @@ var MapRenderer = {
     drawMapTowers(canvas, x, y, wtLevel, color, opacity) {
         const ctx = canvas.getContext('2d');
         ctx.save();
-        ctx.lineWidth   = 2;
-        ctx.fillStyle   = color;
+        ctx.lineWidth = 2;
+        ctx.fillStyle = color;
         ctx.globalAlpha = parseFloat(opacity) || 0.3;
         const wtr = WATCHTOWER_RADIUS[wtLevel - 1];
         ctx.beginPath();
         ctx.strokeStyle = color;
-        ctx.ellipse(x, y, wtr * tileWidthX, wtr * tileWidthY, 0, 0, 2*Math.PI);
+        ctx.ellipse(x, y, wtr * tileWidthX, wtr * tileWidthY, 0, 0, 2 * Math.PI);
         ctx.stroke();
         ctx.fill();
         ctx.strokeStyle = '#000000';
-        ctx.beginPath(); ctx.moveTo(x-6,y-6); ctx.lineTo(x+6,y+6); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x+6,y-6); ctx.lineTo(x-6,y+6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x - 6, y - 6); ctx.lineTo(x + 6, y + 6); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + 6, y - 6); ctx.lineTo(x - 6, y + 6); ctx.stroke();
         ctx.restore();
     },
 
     drawTopoTowers(canvas, x, y, wtLevel, color, opacity) {
         const ctx = canvas.getContext('2d');
         ctx.save();
-        ctx.lineWidth   = 1;
-        ctx.fillStyle   = color;
+        ctx.lineWidth = 1;
+        ctx.fillStyle = color;
         ctx.globalAlpha = parseFloat(opacity) || 0.3;
         ctx.beginPath();
         ctx.strokeStyle = color;
-        ctx.arc(x, y, WATCHTOWER_RADIUS[wtLevel-1]*5, 0, 2*Math.PI);
+        ctx.arc(x, y, WATCHTOWER_RADIUS[wtLevel - 1] * 5, 0, 2 * Math.PI);
         ctx.stroke(); ctx.fill();
         ctx.strokeStyle = '#000000';
-        ctx.beginPath(); ctx.moveTo(x-2,y-2); ctx.lineTo(x+2,y+2); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x+2,y-2); ctx.lineTo(x-2,y+2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x - 2, y - 2); ctx.lineTo(x + 2, y + 2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + 2, y - 2); ctx.lineTo(x - 2, y + 2); ctx.stroke();
         ctx.restore();
     },
 
@@ -1239,9 +1260,9 @@ var MapRenderer = {
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(x - tileWidthX/2, y - tileWidthY/2);
-        ctx.lineTo(x + tileWidthX/2, y - tileWidthY/2);
-        ctx.lineTo(x - tileWidthX/2, y + tileWidthY/2);
+        ctx.moveTo(x - tileWidthX / 2, y - tileWidthY / 2);
+        ctx.lineTo(x + tileWidthX / 2, y - tileWidthY / 2);
+        ctx.lineTo(x - tileWidthX / 2, y + tileWidthY / 2);
         ctx.fill();
     },
 
@@ -1249,25 +1270,31 @@ var MapRenderer = {
         const ctx = canvas.getContext('2d');
         ctx.fillStyle = color;
         ctx.beginPath();
-        ctx.moveTo(x + tileWidthX/2, y - tileWidthY/2);
-        ctx.lineTo(x + tileWidthX/2, y + tileWidthY/2);
-        ctx.lineTo(x - tileWidthX/2, y + tileWidthY/2);
+        ctx.moveTo(x + tileWidthX / 2, y - tileWidthY / 2);
+        ctx.lineTo(x + tileWidthX / 2, y + tileWidthY / 2);
+        ctx.lineTo(x - tileWidthX / 2, y + tileWidthY / 2);
         ctx.fill();
     },
 
     iconOnMap(img, canvas, x, y, size) {
-        canvas.getContext('2d').drawImage(img, x - size/2, y - size/2, size, size);
+        canvas.getContext('2d').drawImage(img, x - size / 2, y - size / 2, size, size);
     },
 
-    textOnMap(text, ctx, x, y, color, font) {
+    textOnMap(text, ctx, x, y, color, font, strongShadow = false) {
         ctx.save();
-        ctx.font        = font;
-        ctx.fillStyle   = color;
-        ctx.textAlign   = 'center';
+        ctx.font = font;
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
         ctx.strokeStyle = 'black';
-        ctx.lineWidth   = 4;
-        ctx.lineJoin    = 'round';
-        ctx.miterLimit  = 1;
+        ctx.lineWidth = strongShadow ? 5 : 4;
+        ctx.lineJoin = 'round';
+        ctx.miterLimit = 1;
+        if (strongShadow) {
+            ctx.shadowColor = 'rgba(0,0,0,0.9)';
+            ctx.shadowBlur = 4;
+            ctx.shadowOffsetX = 1;
+            ctx.shadowOffsetY = 1;
+        }
         ctx.strokeText(text, x, y);
         ctx.fillText(text, x, y);
         ctx.restore();
@@ -1276,9 +1303,9 @@ var MapRenderer = {
     makeOutput(data) {
         $('#overwatch_info').remove();
         if (!data?.xy) return;
-        const xy    = data.xy.toString();
-        const coord = xy.substring(0,3) + '|' + xy.substring(3,6);
-        const el    = targetData.find(v => v.coord === coord);
+        const xy = data.xy.toString();
+        const coord = xy.substring(0, 3) + '|' + xy.substring(3, 6);
+        const el = targetData.find(v => v.coord === coord);
         if (el) {
             const archersEnabled = game_data.units.includes('archer');
             const paladinEnabled = game_data.units.includes('knight');
@@ -1302,8 +1329,8 @@ var MapRenderer = {
                             ${paladinEnabled ? '<th><img src="/graphic/unit/unit_knight.webp"></th>' : ''}
                             <th><img src="/graphic/unit/unit_snob.webp"></th>
                         </tr>
-                        ${Object.keys(el.unitsInVillage||{}).length > 0 ? `<tr><td>At home</td>${this.makeTroopTds(el.unitsInVillage)}</tr>` : ''}
-                        ${Object.keys(el.unitsEnRoute||{}).length  > 0 ? `<tr><td>En route</td>${this.makeTroopTds(el.unitsEnRoute)}</tr>` : ''}
+                        ${Object.keys(el.unitsInVillage || {}).length > 0 ? `<tr><td>At home</td>${this.makeTroopTds(el.unitsInVillage)}</tr>` : ''}
+                        ${Object.keys(el.unitsEnRoute || {}).length > 0 ? `<tr><td>En route</td>${this.makeTroopTds(el.unitsEnRoute)}</tr>` : ''}
                     </table>
                     <div style="margin-top:6px;font-size:11px;color:#555">
                         Stack: ${numberWithCommas(Math.floor(el.totalStack))} |
@@ -1320,11 +1347,11 @@ var MapRenderer = {
     makeTroopTds(troops) {
         const archersEnabled = game_data.units.includes('archer');
         const paladinEnabled = game_data.units.includes('knight');
-        const units = ['spear','sword','axe'];
+        const units = ['spear', 'sword', 'axe'];
         if (archersEnabled) units.push('archer');
-        units.push('spy','light');
+        units.push('spy', 'light');
         if (archersEnabled) units.push('marcher');
-        units.push('heavy','ram','catapult');
+        units.push('heavy', 'ram', 'catapult');
         if (paladinEnabled) units.push('knight');
         units.push('snob');
         return units.map(u => `<td>${troops[u] != null ? troops[u] : ''}</td>`).join('');
@@ -1341,7 +1368,7 @@ function updateStackList() {
         if (!el) return;
         const pkt = Calculator.packetsNeeded(el.totalStack);
         plain += `Coord: ${el.coord} - Player: ${el.playerName} - Tribe: ${el.tribeName} - Stack: ${numberWithCommas(Math.floor(el.totalStack))} - Packets: ${pkt}\n`;
-        bb    += `[*][coord]${el.coord}[/coord][|]${el.playerName}[|]${el.tribeName}[|]${numberWithCommas(Math.floor(el.totalStack))}[|]${pkt}\n`;
+        bb += `[*][coord]${el.coord}[/coord][|]${el.playerName}[|]${el.tribeName}[|]${numberWithCommas(Math.floor(el.totalStack))}[|]${pkt}\n`;
     });
     bb += '[/table]';
     const rows = Math.max(selectedVillages.length + 1, 10);
@@ -1358,10 +1385,10 @@ function saveSettingsAndRedraw() {
     SettingsManager.save();
     recalculate();
     $('#owFilterBar').replaceWith(UIManager.buildFilterBar());
-    $(document).off('click', '.ow-filter-btn[data-filter]').on('click', '.ow-filter-btn[data-filter]', function() {
+    $(document).off('click', '.ow-filter-btn[data-filter]').on('click', '.ow-filter-btn[data-filter]', function () {
         FilterManager.toggle($(this).data('filter'));
     });
-    $(document).off('click','#clearFiltersBtn').on('click','#clearFiltersBtn', () => {
+    $(document).off('click', '#clearFiltersBtn').on('click', '#clearFiltersBtn', () => {
         activeFilters.clear(); saveSettingsAndRedraw();
     });
     MapRenderer.makeMap();
@@ -1372,21 +1399,20 @@ function recalculate() {
     playerData.forEach(player => {
         (player.playerVillages || []).forEach(village => {
             targetData.push({
-                playerName:      player.playerName,
-                tribeName:       player.tribeName,
-                coord:           village.coordinate,
+                playerName: player.playerName,
+                tribeName: player.tribeName,
+                coord: village.coordinate,
                 incomingAttacks: village.attacksToVillage,
-                currentStack:    village.currentPop,
-                totalStack:      village.totalPop,
-                watchtower:      village.watchtower || 0,
-                wall:            village.wall       || '---',
-                checkedWT:       player.checkedWT,
-                checkedWTMini:   player.checkedWTMini,
-                color:           player.color       || DEFAULT_COLORS[0].color,
-                opacity:         parseFloat(player.opacity) || 0.3,
-                unitsInVillage:  village.unitsInVillage,
-                // FIX: konzistentní název – ukládá se jako unitsEnroute (malé r)
-                unitsEnRoute:    village.unitsEnroute,
+                currentStack: village.currentPop,
+                totalStack: village.totalPop,
+                watchtower: village.watchtower || 0,
+                wall: village.wall || '---',
+                checkedWT: player.checkedWT,
+                checkedWTMini: player.checkedWTMini,
+                color: player.color || DEFAULT_COLORS[0].color,
+                opacity: parseFloat(player.opacity) || 0.3,
+                unitsInVillage: village.unitsInVillage,
+                unitsEnRoute: village.unitsEnroute,
             });
         });
     });
@@ -1403,22 +1429,22 @@ function updateStackSizes() {
     SettingsManager.save();
 }
 
-function updateSmall(el)  { smallStack  = el.value; $('#input-left').val(Math.floor(smallStack/bigStack*100));  updateSlider(); SettingsManager.save(); }
-function updateMedium(el) { mediumStack = el.value; $('#input-right').val(Math.floor(mediumStack/bigStack*100)); updateSlider(); SettingsManager.save(); }
+function updateSmall(el) { smallStack = el.value; $('#input-left').val(Math.floor(smallStack / bigStack * 100)); updateSlider(); SettingsManager.save(); }
+function updateMedium(el) { mediumStack = el.value; $('#input-right').val(Math.floor(mediumStack / bigStack * 100)); updateSlider(); SettingsManager.save(); }
 
 function updateSlider() {
-    const range      = document.querySelector('.slider > .range');
-    const thumbLeft  = document.querySelector('.slider > .thumb.left');
+    const range = document.querySelector('.slider > .range');
+    const thumbLeft = document.querySelector('.slider > .thumb.left');
     const thumbRight = document.querySelector('.slider > .thumb.right');
     if (!range || !thumbLeft || !thumbRight) return;
-    const lp = (smallStack/bigStack*100), rp = (mediumStack/bigStack*100);
-    thumbLeft.style.left   = lp + '%';
+    const lp = (smallStack / bigStack * 100), rp = (mediumStack / bigStack * 100);
+    thumbLeft.style.left = lp + '%';
     thumbRight.style.right = (100 - rp) + '%';
-    range.style.left  = lp + '%';
+    range.style.left = lp + '%';
     range.style.right = (100 - rp) + '%';
     const minPct = (minimum / bigStack) * 100;
     $('.track').css('background-image',
-        `linear-gradient(to right,#75FFFF,black ${minPct}%,black ${lp-10}%,red ${lp}%,red ${rp}%,yellow ${rp+10}%,yellow 95%,green)`);
+        `linear-gradient(to right,#75FFFF,black ${minPct}%,black ${lp - 10}%,red ${lp}%,red ${rp}%,yellow ${rp + 10}%,yellow 95%,green)`);
 }
 
 function importData() {
@@ -1429,23 +1455,23 @@ function importData() {
         showNotification('Imported ' + arr.length + ' player(s)');
         UIManager.createOverview();
         if (typeof jscolor !== 'undefined') jscolor.install();
-    } catch(e) { showNotification('Import failed: ' + e.message, 4000); }
+    } catch (e) { showNotification('Import failed: ' + e.message, 4000); }
 }
 
 function exportData() {
     const text = JSON.stringify(playerData);
     navigator.clipboard.writeText(text)
-        .then(()  => showNotification('Player data exported to clipboard'))
+        .then(() => showNotification('Player data exported to clipboard'))
         .catch(() => showNotification('Clipboard write failed'));
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 //  MAP CLICK OVERRIDE
 // ═══════════════════════════════════════════════════════════════════════════════
-TWMap.map._handleClick = function(e) {
-    const pos   = this.coordByEvent(e);
+TWMap.map._handleClick = function (e) {
+    const pos = this.coordByEvent(e);
     const coord = pos.join('|');
-    const vil   = TWMap.villages[pos[0]*1000 + pos[1]];
+    const vil = TWMap.villages[pos[0] * 1000 + pos[1]];
 
     if (e.button === 2 || e.ctrlKey) {
         PacketCalculator.show(coord, e);
@@ -1459,11 +1485,11 @@ TWMap.map._handleClick = function(e) {
         if (!el) return false;
         selectedVillageSet.add(coord);
         selectedVillages.push(coord);
-        $(`[id="map_village_${vil.id}"]`).css({filter:'brightness(800%) grayscale(100%)'});
+        $(`[id="map_village_${vil.id}"]`).css({ filter: 'brightness(800%) grayscale(100%)' });
     } else {
         selectedVillageSet.delete(coord);
         selectedVillages = selectedVillages.filter(v => v !== coord);
-        $(`[id="map_village_${vil.id}"]`).css({filter:'none'});
+        $(`[id="map_village_${vil.id}"]`).css({ filter: 'none' });
     }
 
     updateStackList();
@@ -1473,7 +1499,7 @@ TWMap.map._handleClick = function(e) {
 $(document).on('contextmenu', 'canvas', e => e.preventDefault());
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  INIT
+//  INIT  (bookmarklet-compatible – no chrome.storage dependency)
 // ═══════════════════════════════════════════════════════════════════════════════
 SettingsManager.load();
 NotificationManager.requestPermission();
@@ -1484,7 +1510,7 @@ NotificationManager.requestPermission();
         await DataManager.fetchBuildingIDs();
         await DataManager.fetchOwnVillages();
         await DataManager.fetchAllData();
-    } catch(e) {
+    } catch (e) {
         console.error('Overwatch init error:', e);
         showNotification('Overwatch: init error – ' + e.message, 6000);
     }
