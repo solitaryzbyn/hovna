@@ -1,5 +1,5 @@
 /**
- * Overwatch v2.1 by TheBrain (heavily revised & extended)
+ * Overwatch v2.2 by TheBrain (heavily revised & extended)
  *
  * FIXES v2.0 → v2.1:
  *  - renderSector: data.x/data.y použito místo sector.x/sector.y pro výpočet pozice
@@ -496,7 +496,6 @@ var DataManager = {
                     playerData = parsed;
                     showNotification(`Načteno z cache (stáří ${Math.floor(ageMin)}m, TTL ${cacheTTL}m)`);
                     UIManager.createOverview();
-                    if (typeof jscolor !== 'undefined') jscolor.install();
                     DataManager.setupMapInterceptors();
                     recalculate();
                     TrendManager.snapshot();
@@ -532,7 +531,6 @@ var DataManager = {
         }
 
         UIManager.createOverview();
-        if (typeof jscolor !== 'undefined') jscolor.install();
         this.setupMapInterceptors();
         recalculate();
         TrendManager.snapshot();
@@ -759,11 +757,11 @@ var UIManager = {
         let html = `
         <div id="playerSettings">
             <div style="max-height:600px!important;overflow-y:auto;margin:30px;width:fit-content;">
-            <table class="vis overviewWithPadding" style="border:1px solid #7d510f;min-width:600px;max-width:900px;">
+            <table class="vis overviewWithPadding" style="border:1px solid #7d510f;min-width:600px;max-width:960px;">
                 <thead><tr>
                     <th style="color:#000;">Player name</th>
                     ${hasWT ? '<th style="width:80px;text-align:center;color:#000;">Map WT</th><th style="width:80px;text-align:center;color:#000;">Minimap WT</th>' : ''}
-                    <th style="width:80px;text-align:center;color:#000;">Map color</th>
+                    <th style="width:160px;text-align:center;color:#000;">Map color &amp; opacity</th>
                     <th style="color:#000;">Incoming attacks</th>
                     <th style="color:#000;">Villages</th>
                 </tr></thead>
@@ -771,6 +769,7 @@ var UIManager = {
         playerData.forEach((player, i) => {
             const color = player.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length].color;
             const opacity = player.opacity != null ? player.opacity : DEFAULT_COLORS[i % DEFAULT_COLORS.length].opacity;
+            const opacityPct = Math.round(parseFloat(opacity) * 100);
             const id = player.playerID.replace(/[\s()]/g, '');
             const rowClass = i % 2 === 0 ? 'row_b' : 'row_a';
             html += `
@@ -779,18 +778,30 @@ var UIManager = {
                 ${hasWT ? `
                 <td><center><input id="checkMapWT${id}" type="checkbox" ${player.checkedWT ? 'checked' : ''}></center></td>
                 <td><center><input id="checkWTMini${id}" type="checkbox" ${player.checkedWTMini ? 'checked' : ''}></center></td>` : ''}
-                <td><center>
-                    <button class="btn" id="color${id}" data-jscolor="{valueElement:'#val${id}',alphaElement:'#alp${id}'}"></button>
-                    <input id="val${id}" value="${color}" type="hidden">
-                    <input id="alp${id}" value="${opacity}" type="hidden">
-                </center></td>
+                <td>
+                    <div style="display:flex;align-items:center;gap:6px;padding:2px 4px;">
+                        <input id="val${id}" type="color" value="${color}"
+                            style="width:36px;height:28px;border:2px solid #7d510f;border-radius:4px;cursor:pointer;padding:1px;background:#fff;"
+                            onchange="document.getElementById('colorPreview${id}').style.background=this.value;SettingsManager.updateFromUI();SettingsManager.save();">
+                        <div id="colorPreview${id}"
+                            style="width:18px;height:18px;border-radius:50%;border:1px solid #555;background:${color};opacity:${opacity};flex-shrink:0;"></div>
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
+                            <span style="color:#000;font-size:9px;font-weight:bold;" id="alpLabel${id}">${opacityPct}%</span>
+                            <input id="alp${id}" type="range" min="0" max="1" step="0.05" value="${opacity}"
+                                style="width:70px;height:14px;cursor:pointer;accent-color:#7d510f;"
+                                oninput="document.getElementById('alpLabel${id}').innerText=Math.round(this.value*100)+'%';
+                                         document.getElementById('colorPreview${id}').style.opacity=this.value;
+                                         SettingsManager.updateFromUI();SettingsManager.save();">
+                        </div>
+                    </div>
+                </td>
                 <td style="color:#000;">${player.attackCount}</td>
                 <td style="color:#000;">${(player.playerVillages || []).length}</td>
             </tr>`;
         });
         html += `
             ${hasWT ? `<tr style="border-top:1px solid black">
-                <td style="text-align:right">Select all:</td>
+                <td style="text-align:right;color:#000;">Select all:</td>
                 <td><center><input id="checkAllWT" type="checkbox"></center></td>
                 <td><center><input id="checkAllWTMini" type="checkbox"></center></td>
                 <td colspan="3"></td>
@@ -1476,7 +1487,6 @@ function importData() {
         playerData = playerData.concat(arr);
         showNotification('Imported ' + arr.length + ' player(s)');
         UIManager.createOverview();
-        if (typeof jscolor !== 'undefined') jscolor.install();
     } catch (e) { showNotification('Import failed: ' + e.message, 4000); }
 }
 
