@@ -116,6 +116,18 @@ $('#contentContainer').eq(0).prepend(`<style>
     #ow-progress-bar{height:4px;background:#f4e4bc;width:0%;transition:width .2s;}
     canvas[data-ow]{pointer-events:none!important;}
     canvas[data-ow-mini]{pointer-events:none!important;}
+    /* ── Stack Settings – force readable text on light vis backgrounds ── */
+    #stackSize .vis th,
+    #stackSize .vis td,
+    #stackSize label,
+    #stackSize .vis input[type=text] {
+        color: #000 !important;
+        background-color: #fff;
+    }
+    #stackSize .vis thead th {
+        background-color: #c1a264;
+        color: #000 !important;
+    }
 </style>`);
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -793,9 +805,13 @@ var UIManager = {
         return `
         <div id="stackSize">
             <table class="vis" style="margin:30px;">
-                <tr><th>Empty</th><th colspan="2" style="width:400px;text-align:center">Small – Medium stack</th><th>Big stack</th></tr>
+                <tr>
+                    <th style="color:#000 !important;">Empty</th>
+                    <th colspan="2" style="width:400px;text-align:center;color:#000 !important;">Small – Medium stack</th>
+                    <th style="color:#000 !important;">Big stack</th>
+                </tr>
                 <tr style="height:70px">
-                    <td><input type="text" id="emptyStack" name="emptyStack" onchange="minimum=$(this).val();updateStackSizes();"></td>
+                    <td><input type="text" id="emptyStack" name="emptyStack" style="color:#000;background:#fff;font-weight:bold;" onchange="minimum=$(this).val();updateStackSizes();"></td>
                     <td colspan="2">
                         <div class="middle">
                             <div class="multi-range-slider">
@@ -810,12 +826,18 @@ var UIManager = {
                             </div>
                         </div>
                     </td>
-                    <td><input type="text" id="bigStack" name="bigStack" onchange="bigStack=$(this).val();updateStackSizes();"></td>
+                    <td><input type="text" id="bigStack" name="bigStack" style="color:#000;background:#fff;font-weight:bold;" onchange="bigStack=$(this).val();updateStackSizes();"></td>
                 </tr>
                 <tr>
                     <td></td>
-                    <td><label>Small stack</label><input type="text" style="margin-left:20px;" onchange="updateSmall(this)" id="smallStack"></td>
-                    <td style="text-align:right"><label style="margin:0 10px 0 40px">Medium stack</label><input type="text" style="margin-right:20px;" onchange="updateMedium(this)" id="mediumStack"></td>
+                    <td>
+                        <label style="color:#000 !important;font-weight:bold;">Small stack</label>
+                        <input type="text" style="margin-left:20px;color:#000;background:#fff;font-weight:bold;" onchange="updateSmall(this)" id="smallStack">
+                    </td>
+                    <td style="text-align:right">
+                        <label style="margin:0 10px 0 40px;color:#000 !important;font-weight:bold;">Medium stack</label>
+                        <input type="text" style="margin-right:20px;color:#000;background:#fff;font-weight:bold;" onchange="updateMedium(this)" id="mediumStack">
+                    </td>
                     <td></td>
                 </tr>
             </table>
@@ -837,18 +859,18 @@ var UIManager = {
                 </tr></thead>
                 <tbody><tr>
                     ${['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob', 'militia'].map(u =>
-            `<td align="center"><input type="text" onchange="SettingsManager.save();" name="${u}" id="${u}" size="2" value="${unitPopValues[u] || 0}"></td>`
+            `<td align="center"><input type="text" onchange="SettingsManager.save();" name="${u}" id="${u}" size="2" value="${unitPopValues[u] || 0}" style="color:#000;background:#fff;font-weight:bold;text-align:center;"></td>`
         ).join('')}
                 </tr></tbody>
             </table>
             <table class="vis overviewWithPadding" style="border:1px solid #7d510f;margin:20px;">
                 <tr>
-                    <td><label>Packet size (pop)</label></td>
-                    <td><input type="text" id="packetSize" value="${packetSize}" onchange="packetSize=$(this).val();SettingsManager.save();"></td>
+                    <td><label style="color:#000 !important;font-weight:bold;">Packet size (pop)</label></td>
+                    <td><input type="text" id="packetSize" value="${packetSize}" style="color:#000;background:#fff;font-weight:bold;" onchange="packetSize=$(this).val();SettingsManager.save();"></td>
                 </tr>
                 <tr>
-                    <td><label>Cache TTL (minutes)</label></td>
-                    <td><input type="text" id="cacheTTL" value="${cacheTTL}" onchange="cacheTTL=$(this).val();SettingsManager.save();" title="Data older than this will be re-fetched on next load"></td>
+                    <td><label style="color:#000 !important;font-weight:bold;">Cache TTL (minutes)</label></td>
+                    <td><input type="text" id="cacheTTL" value="${cacheTTL}" style="color:#000;background:#fff;font-weight:bold;" onchange="cacheTTL=$(this).val();SettingsManager.save();" title="Data older than this will be re-fetched on next load"></td>
                 </tr>
             </table>
         </div>`;
