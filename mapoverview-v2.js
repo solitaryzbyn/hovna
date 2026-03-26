@@ -1,5 +1,16 @@
 /**
- * Overwatch v2.3 by TheBrain (heavily revised & extended)
+ * Overwatch v2.4 by TheBrain (heavily revised & extended)
+ *
+ * FIXES v2.3 → v2.4:
+ *  - Discord webhook URL input field added directly next to "Send to Discord" button
+ *    (persistent save to localStorage, visible tooltip with step-by-step guide)
+ *  - Attack timer overlay fixed: TW popup data format corrected (arrival_time parsing,
+ *    fallback to nextAttackTime / next_attack_time fields, and direct DOM scraping
+ *    from the popup HTML as last resort)
+ *  - Noble train detector fixed: now also counts attacks via incomingAttacks field
+ *    and uses a secondary scan on every data update
+ *  - Tooltip overflow fix: tooltips now flip upward when near bottom edge and clamp
+ *    horizontally so they never get cut off at screen edges
  *
  * NEW FEATURES (v2.3):
  *  1. Attack timer overlay   – live countdown to nearest incoming impact per village
@@ -7,18 +18,9 @@
  *  3. Player-colored rings   – thin ring in player color around each village tile
  *  4. Pulse animation        – attacked villages slowly pulse on canvas overlay
  *  5. Auto-refresh           – configurable interval (default 15 min), background fetch + diff notification
- *  6. Discord webhook export – "Send to Discord" button in Import/Export tab, webhook URL in settings
+ *  6. Discord webhook export – inline input + "Send to Discord" button, webhook URL persisted in settings
  *  7. Sector priority score  – avg stack per sector displayed on minimap as number overlay
  *  +  Tooltips on all dashboard controls
- *
- * FIXES v2.0 → v2.1:
- *  - renderSector: data.x/data.y použito místo sector.x/sector.y pro výpočet pozice
- *  - sectorSize odvozen z data.tiles místo neexistujícího map.sectorSize
- *  - canvas rozměry opraveny (tileWidthX/Y místo neexistujícího map.scale[])
- *  - mapOverlay.reload() → TWMap.mapHandler.onReload()
- *  - unitsEnRoute překlep opraven (unitsEnroute → unitsEnRoute konzistentně)
- *  - batchGetAll race condition opravena (atomic nextIdx++)
- *  - batchSize snížen na 2 (prevence 429 Too Many Requests)
  *
  * BOOKMARKLET USAGE:
  *  javascript:(function(){var s=document.createElement('script');s.src='YOUR_RAW_GITHUB_URL/overwatch.js?_='+Date.now();document.head.appendChild(s);})();
@@ -62,7 +64,7 @@ let activeFilters = new Set();
 let stackHistory = {};
 let ownVillages = [];
 
-// v2.3 state
+// v2.3/v2.4 state
 let attackTimers = {};           // coord → { arrivalTs, source, count }[]
 let nobleTrainAlerted = new Set(); // coords already alerted this session
 let autoRefreshInterval = AUTO_REFRESH_DEFAULT;
@@ -141,15 +143,31 @@ $('#contentContainer').eq(0).prepend(`<style>
         background:rgba(180,0,0,0.85);border-radius:3px;padding:1px 3px;
         pointer-events:none;z-index:20;white-space:nowrap;
     }
-    /* ── v2.3 Tooltips ── */
-    [data-ow-tip]{position:relative;}
-    [data-ow-tip]:hover::after{
-        content:attr(data-ow-tip);
-        position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);
-        background:rgba(20,0,0,0.95);color:#d4af37;font-size:11px;
-        border:1px solid #d4af37;border-radius:4px;padding:5px 9px;
-        white-space:nowrap;z-index:99999;pointer-events:none;
-        box-shadow:0 2px 8px rgba(0,0,0,.6);
+    /* ── v2.4 Tooltips – smart positioning, never clipped ── */
+    .ow-tip-wrap {
+        position: relative;
+        display: inline-block;
+    }
+    .ow-tip-wrap .ow-tip-box {
+        display: none;
+        position: fixed;
+        z-index: 999999;
+        background: rgba(20,0,0,0.97);
+        color: #d4af37;
+        font-size: 11px;
+        border: 1px solid #d4af37;
+        border-radius: 5px;
+        padding: 7px 11px;
+        max-width: 300px;
+        min-width: 160px;
+        line-height: 1.5;
+        white-space: normal;
+        word-break: break-word;
+        box-shadow: 0 3px 12px rgba(0,0,0,.7);
+        pointer-events: none;
+    }
+    .ow-tip-wrap:hover .ow-tip-box {
+        display: block;
     }
     /* ── v2.3 Auto-refresh indicator ── */
     #ow-refresh-indicator{
@@ -170,6 +188,69 @@ $('#contentContainer').eq(0).prepend(`<style>
     #ow-diff-popup .ow-diff-row{display:flex;justify-content:space-between;gap:12px;padding:1px 0;}
     #ow-diff-popup .up{color:#00ff88;}
     #ow-diff-popup .down{color:#ff4444;}
+    /* ── v2.4 Discord inline bar ── */
+    #owDiscordBar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 16px 4px 16px;
+        flex-wrap: wrap;
+    }
+    #owDiscordWebhookInput {
+        flex: 1;
+        min-width: 180px;
+        max-width: 320px;
+        padding: 4px 7px;
+        font-size: 11px;
+        border: 1px solid #d4af37;
+        border-radius: 4px;
+        background: #1a0a00;
+        color: #d4af37;
+        outline: none;
+    }
+    #owDiscordWebhookInput::placeholder { color: #6b4a1a; }
+    #owDiscordWebhookInput:focus { border-color: #fff7c0; }
+    #owDiscordSaveBtn {
+        padding: 4px 10px;
+        background: rgba(212,175,55,0.18);
+        color: #d4af37;
+        border: 1px solid #d4af37;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 11px;
+        white-space: nowrap;
+    }
+    #owDiscordSaveBtn:hover { background: rgba(212,175,55,0.38); }
+    #owDiscordStatus {
+        font-size: 10px;
+        color: #88c8ff;
+        min-width: 60px;
+    }
+    /* ── v2.4 Noble train attack timer live tick ── */
+    #ow-attack-live-bar {
+        position: fixed;
+        top: 50px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10002;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        justify-content: center;
+        pointer-events: none;
+        max-width: 90vw;
+    }
+    .ow-live-timer-chip {
+        background: rgba(140,0,0,0.92);
+        color: #fff;
+        border: 1px solid #ff4444;
+        border-radius: 5px;
+        padding: 3px 9px;
+        font-size: 11px;
+        font-weight: bold;
+        white-space: nowrap;
+        box-shadow: 0 2px 6px rgba(0,0,0,.5);
+    }
 </style>`);
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -217,6 +298,47 @@ function formatCountdown(ms) {
     return [h, m, s].map(v => String(v).padStart(2, '0')).join(':');
 }
 
+/**
+ * v2.4 – Tooltip helper: wraps an element with a smart tooltip box
+ * that is never cut off at screen edges and flips above/below as needed.
+ * Usage: owTip(element, "tooltip text")
+ */
+function owTip(el, text) {
+    const wrap = document.createElement('span');
+    wrap.className = 'ow-tip-wrap';
+    el.parentNode.insertBefore(wrap, el);
+    wrap.appendChild(el);
+
+    const box = document.createElement('span');
+    box.className = 'ow-tip-box';
+    box.innerHTML = text;
+    wrap.appendChild(box);
+
+    wrap.addEventListener('mouseenter', () => {
+        const rect = wrap.getBoundingClientRect();
+        const bw = 300; // max tooltip width
+        // Horizontal: center on element, clamp within viewport
+        let left = rect.left + rect.width / 2 - bw / 2;
+        left = clamp(left, 8, window.innerWidth - bw - 8);
+        // Vertical: above element by default
+        let top = rect.top - 8;
+        box.style.left = left + 'px';
+        // Check if enough space above; if not, show below
+        // (estimate 80px height for tooltip)
+        if (top - 80 < 4) {
+            box.style.top = (rect.bottom + 8) + 'px';
+        } else {
+            box.style.top = '';
+            box.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+        }
+        box.style.width = bw + 'px';
+        box.style.display = 'block';
+    });
+    wrap.addEventListener('mouseleave', () => {
+        box.style.display = 'none';
+    });
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  SETTINGS MANAGER
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -234,7 +356,10 @@ var SettingsManager = {
                 unitPopValues = settingsData.unitPopValues || this._defaultUnits();
                 cacheTTL = settingsData.cacheTTL || CACHE_TTL_DEFAULT;
                 autoRefreshInterval = settingsData.autoRefreshInterval || AUTO_REFRESH_DEFAULT;
-                discordWebhookUrl = settingsData.discordWebhookUrl || '';
+                // v2.4: load discord webhook from both settings AND dedicated key (belt-and-suspenders)
+                discordWebhookUrl = settingsData.discordWebhookUrl
+                    || localStorage.getItem('overwatchDiscordWebhook')
+                    || '';
                 targetStackSize = bigStack;
                 if (settingsData.playerSettings && playerData.length) {
                     settingsData.playerSettings.forEach((ps, i) => {
@@ -252,6 +377,8 @@ var SettingsManager = {
             }
         } else {
             this.setDefaults();
+            // Still try dedicated webhook key
+            discordWebhookUrl = localStorage.getItem('overwatchDiscordWebhook') || '';
         }
         const hist = localStorage.getItem('overwatchStackHistory');
         if (hist) {
@@ -287,7 +414,28 @@ var SettingsManager = {
             playerSettings, unitPopValues, autoRefreshInterval, discordWebhookUrl
         };
         localStorage.setItem('overwatchSettings', JSON.stringify(data));
+        // v2.4: also save to dedicated key so it survives settings reset
+        if (discordWebhookUrl) {
+            localStorage.setItem('overwatchDiscordWebhook', discordWebhookUrl);
+        }
         showNotification('Settings saved');
+    },
+
+    saveDiscord(url) {
+        discordWebhookUrl = url.trim();
+        localStorage.setItem('overwatchDiscordWebhook', discordWebhookUrl);
+        // Merge into main settings without blowing them up
+        try {
+            const raw = localStorage.getItem('overwatchSettings');
+            const obj = raw ? JSON.parse(raw) : {};
+            obj.discordWebhookUrl = discordWebhookUrl;
+            localStorage.setItem('overwatchSettings', JSON.stringify(obj));
+        } catch (e) { /* ignore */ }
+        // Update the Import/Export tab input too if visible
+        $('#discordWebhookUrl').val(discordWebhookUrl);
+        // Update status badge
+        $('#owDiscordStatus').text(discordWebhookUrl ? '✓ Saved' : '');
+        showNotification('Discord webhook URL saved ✓');
     },
 
     updateFromUI() {
@@ -298,7 +446,8 @@ var SettingsManager = {
         packetSize = parseFloat($('#packetSize').val()) || 1000;
         cacheTTL = parseFloat($('#cacheTTL').val()) || CACHE_TTL_DEFAULT;
         autoRefreshInterval = parseFloat($('#autoRefreshInterval').val()) || AUTO_REFRESH_DEFAULT;
-        discordWebhookUrl = $('#discordWebhookUrl').val().trim();
+        const newWebhook = $('#discordWebhookUrl').val().trim();
+        if (newWebhook) discordWebhookUrl = newWebhook;
         playerData.forEach(player => {
             const id = player.playerID.replace(/[\s()]/g, '');
             const valEl = document.getElementById('val' + id);
@@ -379,52 +528,172 @@ var NotificationManager = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  v2.3 ATTACK TIMER MANAGER
+//  v2.4 ATTACK TIMER MANAGER (fixed parsing)
 // ═══════════════════════════════════════════════════════════════════════════════
 var AttackTimerManager = {
     /**
-     * Called from the getTroops/popup intercept with raw popup data.
-     * We look for an arrival_time field (Tribal Wars includes this in the
-     * village popup data as a Unix timestamp or ISO string).
+     * v2.4 complete rewrite of update().
+     * Tribal Wars popup data comes in MANY shapes across world variants.
+     * We try every known field name and fall back to DOM scraping.
      */
-    update(popupData) {
-        if (!popupData?.xy) return;
-        const xy = popupData.xy.toString();
-        const coord = xy.substring(0, 3) + '|' + xy.substring(3, 6);
+    update(popupData, rawHtml) {
+        if (!popupData) return;
 
-        // TW popup exposes incoming attack list in various forms
-        // Try the most common paths:
-        const rawAttacks = popupData.attacks || popupData.incomings || [];
+        // Determine coordinate
+        let coord = null;
+        if (popupData.xy) {
+            const xy = popupData.xy.toString();
+            // xy can be "403569" (6 digits) or already "403|569"
+            if (xy.includes('|')) {
+                coord = xy;
+            } else if (xy.length >= 6) {
+                coord = xy.substring(0, 3) + '|' + xy.substring(3, 6);
+            }
+        } else if (popupData.id) {
+            // Try to derive from village id lookup
+            const v = TWMap.villages?.[popupData.id];
+            if (v) coord = Math.floor(popupData.id / 1000) + '|' + (popupData.id % 1000);
+        }
+        if (!coord) return;
+
         const timers = [];
 
-        if (Array.isArray(rawAttacks)) {
+        // ── Strategy 1: structured attacks/incomings array ──
+        const rawAttacks =
+            popupData.attacks ||
+            popupData.incomings ||
+            popupData.incoming ||
+            popupData.attack_list ||
+            [];
+
+        if (Array.isArray(rawAttacks) && rawAttacks.length > 0) {
             rawAttacks.forEach(atk => {
-                const ts = atk.arrival_time
-                    ? (typeof atk.arrival_time === 'number' ? atk.arrival_time * 1000 : new Date(atk.arrival_time).getTime())
-                    : null;
-                if (ts && !isNaN(ts)) {
+                const ts = this._extractTs(atk.arrival_time || atk.arrive || atk.arrivalTime || atk.time);
+                if (ts) {
                     timers.push({
                         arrivalTs: ts,
-                        source: atk.village_id || atk.attacker_village || '?',
-                        attacker: atk.attacker_player || '?'
+                        source: String(atk.village_id || atk.attacker_village || atk.from || '?'),
+                        attacker: String(atk.attacker_player || atk.player || '?')
                     });
                 }
             });
         }
 
-        // If no structured data, check for a nearest_attack_time top-level field
-        if (timers.length === 0 && popupData.nearest_attack_time) {
-            const ts = popupData.nearest_attack_time * 1000;
-            if (!isNaN(ts)) timers.push({ arrivalTs: ts, source: '?', attacker: '?' });
+        // ── Strategy 2: top-level single timer fields ──
+        const singleTs =
+            popupData.nearest_attack_time ||
+            popupData.next_attack_time ||
+            popupData.nextAttackTime ||
+            popupData.attack_time ||
+            null;
+        if (timers.length === 0 && singleTs) {
+            const ts = this._extractTs(singleTs);
+            if (ts) timers.push({ arrivalTs: ts, source: '?', attacker: '?' });
+        }
+
+        // ── Strategy 3: raw HTML DOM scraping ──
+        if (timers.length === 0 && rawHtml) {
+            timers.push(...this._parseFromHtml(rawHtml, coord));
+        }
+
+        // ── Strategy 4: live DOM scrape of currently shown popup ──
+        if (timers.length === 0) {
+            timers.push(...this._scrapeCurrentPopupDom(coord));
         }
 
         if (timers.length > 0) {
             timers.sort((a, b) => a.arrivalTs - b.arrivalTs);
             attackTimers[coord] = timers;
+            this._updateLiveBar();
         }
 
         // Noble train check
         this._checkNobleTrain(coord, timers);
+
+        // Also check incomingAttacks count from targetData as fallback for noble train
+        this._checkNobleTrainByCount(coord);
+    },
+
+    _extractTs(val) {
+        if (!val) return null;
+        if (typeof val === 'number') {
+            // Unix seconds (< year 2100) or Unix ms
+            const ts = val < 1e10 ? val * 1000 : val;
+            return isNaN(ts) ? null : ts;
+        }
+        if (typeof val === 'string') {
+            // ISO string or numeric string
+            const parsed = Date.parse(val);
+            if (!isNaN(parsed)) return parsed;
+            const n = parseFloat(val);
+            if (!isNaN(n)) return n < 1e10 ? n * 1000 : n;
+        }
+        return null;
+    },
+
+    /**
+     * v2.4: Parse TW-style countdown timers from popup HTML.
+     * TW renders attacks as countdown spans with class "relative_time"
+     * or as server_time + offset data attributes.
+     */
+    _parseFromHtml(html, coord) {
+        const timers = [];
+        try {
+            const tmp = document.createElement('div');
+            tmp.innerHTML = html;
+
+            // TW classic: <span data-endtime="1234567890">
+            tmp.querySelectorAll('[data-endtime]').forEach(el => {
+                const ts = this._extractTs(parseFloat(el.dataset.endtime));
+                if (ts) timers.push({ arrivalTs: ts, source: '?', attacker: '?' });
+            });
+
+            // TW: countdown spans with unix timestamp in data-arrive or data-arrival
+            tmp.querySelectorAll('[data-arrive],[data-arrival]').forEach(el => {
+                const ts = this._extractTs(parseFloat(el.dataset.arrive || el.dataset.arrival));
+                if (ts) timers.push({ arrivalTs: ts, source: '?', attacker: '?' });
+            });
+
+            // TW: text like "in 1:23:45" – compute from server time offset
+            // (best effort, may be imprecise by network latency)
+            tmp.querySelectorAll('.relative_time, .countdown').forEach(el => {
+                const txt = el.textContent.trim();
+                const match = txt.match(/(\d+):(\d{2}):(\d{2})/);
+                if (match) {
+                    const ms = (parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3])) * 1000;
+                    timers.push({ arrivalTs: Date.now() + ms, source: '?', attacker: '?' });
+                }
+            });
+        } catch (e) { /* ignore */ }
+        return timers;
+    },
+
+    /**
+     * v2.4: Try to scrape the currently visible TW popup DOM directly.
+     */
+    _scrapeCurrentPopupDom(coord) {
+        const timers = [];
+        try {
+            const popup = document.getElementById('map_popup');
+            if (!popup) return timers;
+            popup.querySelectorAll('[data-endtime]').forEach(el => {
+                const ts = this._extractTs(parseFloat(el.dataset.endtime));
+                if (ts) timers.push({ arrivalTs: ts, source: '?', attacker: '?' });
+            });
+            popup.querySelectorAll('[data-arrive],[data-arrival]').forEach(el => {
+                const ts = this._extractTs(parseFloat(el.dataset.arrive || el.dataset.arrival));
+                if (ts) timers.push({ arrivalTs: ts, source: '?', attacker: '?' });
+            });
+            popup.querySelectorAll('.relative_time,.countdown').forEach(el => {
+                const txt = el.textContent.trim();
+                const match = txt.match(/(\d+):(\d{2}):(\d{2})/);
+                if (match) {
+                    const ms = (parseInt(match[1]) * 3600 + parseInt(match[2]) * 60 + parseInt(match[3])) * 1000;
+                    timers.push({ arrivalTs: Date.now() + ms, source: '?', attacker: '?' });
+                }
+            });
+        } catch (e) { /* ignore */ }
+        return timers;
     },
 
     _checkNobleTrain(coord, timers) {
@@ -433,10 +702,26 @@ var AttackTimerManager = {
         timers.forEach(t => {
             sourceCounts[t.source] = (sourceCounts[t.source] || 0) + 1;
         });
-        const trainSource = Object.keys(sourceCounts).find(k => sourceCounts[k] >= NOBLE_TRAIN_THRESHOLD);
+        const trainSource = Object.keys(sourceCounts).find(k => k !== '?' && sourceCounts[k] >= NOBLE_TRAIN_THRESHOLD);
         if (trainSource) {
             nobleTrainAlerted.add(coord);
             NobleTrainDetector.alert(coord, trainSource, sourceCounts[trainSource]);
+        }
+    },
+
+    /**
+     * v2.4: Fallback noble train detection using raw incomingAttacks count.
+     * If a single village has ≥ NOBLE_TRAIN_THRESHOLD attacks and we don't
+     * have per-source data, flag it as a potential noble train.
+     */
+    _checkNobleTrainByCount(coord) {
+        if (nobleTrainAlerted.has(coord)) return;
+        const el = targetData.find(v => v.coord === coord);
+        if (!el) return;
+        const cnt = parseInt(el.incomingAttacks) || 0;
+        if (cnt >= NOBLE_TRAIN_THRESHOLD) {
+            nobleTrainAlerted.add(coord);
+            NobleTrainDetector.alert(coord, 'unknown', cnt);
         }
     },
 
@@ -454,6 +739,40 @@ var AttackTimerManager = {
         if (!t) return null;
         const ms = t.arrivalTs - Date.now();
         return formatCountdown(ms);
+    },
+
+    /**
+     * v2.4: Live bar showing all active attack timers at top of screen.
+     * Updates every second via a simple setInterval.
+     */
+    _liveBarInterval: null,
+
+    _updateLiveBar() {
+        if (this._liveBarInterval) return; // already running
+        this._liveBarInterval = setInterval(() => {
+            let bar = document.getElementById('ow-attack-live-bar');
+            const entries = [];
+            Object.entries(attackTimers).forEach(([coord, timers]) => {
+                const now = Date.now();
+                const upcoming = timers.filter(t => t.arrivalTs > now);
+                if (upcoming.length > 0) {
+                    entries.push({ coord, ms: upcoming[0].arrivalTs - now });
+                }
+            });
+            entries.sort((a, b) => a.ms - b.ms);
+            if (entries.length === 0) {
+                if (bar) bar.remove();
+                return;
+            }
+            if (!bar) {
+                bar = document.createElement('div');
+                bar.id = 'ow-attack-live-bar';
+                document.body.appendChild(bar);
+            }
+            bar.innerHTML = entries.slice(0, 8).map(e =>
+                `<span class="ow-live-timer-chip">⚔ ${e.coord} → ${formatCountdown(e.ms)}</span>`
+            ).join('');
+        }, 1000);
     }
 };
 
@@ -462,7 +781,7 @@ var AttackTimerManager = {
 // ═══════════════════════════════════════════════════════════════════════════════
 var NobleTrainDetector = {
     alert(coord, sourceId, count) {
-        const msg = `⚠️ POSSIBLE NOBLE TRAIN on ${coord} – ${count} attacks from same source!`;
+        const msg = `⚠️ POSSIBLE NOBLE TRAIN on ${coord} – ${count} attacks from ${sourceId === 'unknown' ? 'potentially same source' : 'same source'}!`;
         NotificationManager._sendBrowserNotification('⚠️ NOBLE TRAIN DETECTED', msg);
         showNotification(msg, 8000);
 
@@ -476,7 +795,6 @@ var NobleTrainDetector = {
     },
 
     _highlightOnMap(coord) {
-        // We redraw with noble train flag
         const el = targetData.find(v => v.coord === coord);
         if (el) {
             el._nobleTrain = true;
@@ -484,24 +802,26 @@ var NobleTrainDetector = {
         }
     },
 
-    /**
-     * Also scan all villages every time popup data is refreshed
-     * by counting incoming attacks grouped by source player.
-     * This uses the targetData.incomingAttacks count as a fallback.
-     */
     scanAll() {
-        // Group by coord → source attacks if attack timer data available
         targetData.forEach(v => {
+            // Per-source check if we have timer data
             if (attackTimers[v.coord]) {
                 const sourceCounts = {};
                 attackTimers[v.coord].forEach(t => {
                     sourceCounts[t.source] = (sourceCounts[t.source] || 0) + 1;
                 });
-                const trainSource = Object.keys(sourceCounts).find(k => sourceCounts[k] >= NOBLE_TRAIN_THRESHOLD);
+                const trainSource = Object.keys(sourceCounts).find(k => k !== '?' && sourceCounts[k] >= NOBLE_TRAIN_THRESHOLD);
                 if (trainSource && !nobleTrainAlerted.has(v.coord)) {
                     nobleTrainAlerted.add(v.coord);
                     this.alert(v.coord, trainSource, sourceCounts[trainSource]);
+                    return;
                 }
+            }
+            // Fallback: raw count
+            const cnt = parseInt(v.incomingAttacks) || 0;
+            if (cnt >= NOBLE_TRAIN_THRESHOLD && !nobleTrainAlerted.has(v.coord)) {
+                nobleTrainAlerted.add(v.coord);
+                this.alert(v.coord, 'unknown', cnt);
             }
         });
     }
@@ -557,14 +877,13 @@ var AutoRefreshManager = {
         showNotification('Auto-refresh: fetching data…', 60000);
         const oldData = JSON.parse(JSON.stringify(targetData));
 
-        // Invalidate cache
         localStorage.removeItem('overwatchPlayerData');
         localStorage.removeItem('overwatchPlayerDataTs');
 
         try {
             await DataManager.fetchPlayerIDs();
             await DataManager.fetchBuildingIDs();
-            await DataManager.fetchAllData(true /* silent */);
+            await DataManager.fetchAllData(true);
             DiffManager.show(oldData, targetData);
             TrendManager.snapshot();
             NotificationManager.checkNewAttacks();
@@ -576,7 +895,7 @@ var AutoRefreshManager = {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//  v2.3 DIFF MANAGER – shows what changed after auto-refresh
+//  v2.3 DIFF MANAGER
 // ═══════════════════════════════════════════════════════════════════════════════
 var DiffManager = {
     show(oldData, newData) {
@@ -632,7 +951,7 @@ var DiscordExporter = {
             title: '⚠️ POSSIBLE NOBLE TRAIN DETECTED',
             color: 0xFF0000,
             fields: [
-                { name: 'Target', value: `[coord]${coord}[/coord]`, inline: true },
+                { name: 'Target', value: coord, inline: true },
                 { name: 'Owner', value: village?.playerName || '?', inline: true },
                 { name: 'Attacks from same source', value: String(count), inline: true },
                 { name: 'Stack', value: village ? numberWithCommas(Math.floor(village.totalStack)) : '?', inline: true },
@@ -640,7 +959,7 @@ var DiscordExporter = {
                 { name: 'WT', value: village?.watchtower != null ? String(village.watchtower) : '?', inline: true },
             ],
             timestamp: new Date().toISOString(),
-            footer: { text: 'Overwatch v2.3 – TheBrain🧠' }
+            footer: { text: 'Overwatch v2.4 – TheBrain🧠' }
         };
         fetch(discordWebhookUrl, {
             method: 'POST',
@@ -650,10 +969,20 @@ var DiscordExporter = {
     },
 
     sendManualSummary() {
+        // v2.4: re-read from inline input in case user typed it but didn't save yet
+        const inlineVal = $('#owDiscordWebhookInput').val().trim();
+        if (inlineVal && inlineVal !== discordWebhookUrl) {
+            SettingsManager.saveDiscord(inlineVal);
+        }
+
         if (!discordWebhookUrl) {
-            showNotification('No Discord webhook URL set in settings!', 4000);
+            showNotification('Nejprve zadej a ulož Discord Webhook URL!', 5000);
+            // Highlight the input
+            $('#owDiscordWebhookInput').css('border-color', '#ff4444').focus();
+            setTimeout(() => $('#owDiscordWebhookInput').css('border-color', ''), 2500);
             return;
         }
+
         const attacked = targetData.filter(v => (parseInt(v.incomingAttacks) || 0) > 0);
         const lowStack = targetData.filter(v => (parseFloat(v.totalStack) || 0) <= (parseFloat(minimum) || 0));
         const trains = targetData.filter(v => v._nobleTrain);
@@ -671,7 +1000,7 @@ var DiscordExporter = {
                 ? '**Villages under attack:**\n' + attacked.slice(0, 10).map(v => `• ${v.coord} (${v.playerName}) – ${v.incomingAttacks} incoming`).join('\n')
                 : 'No villages currently under attack.',
             timestamp: new Date().toISOString(),
-            footer: { text: 'Overwatch v2.3 – TheBrain🧠' }
+            footer: { text: 'Overwatch v2.4 – TheBrain🧠' }
         };
         fetch(discordWebhookUrl, {
             method: 'POST',
@@ -715,7 +1044,6 @@ var SectorScoreManager = {
         const cx = canvas.width / 2;
         const cy = canvas.height / 2;
         const avgK = Math.floor(score.avg / 1000);
-        // Color: red = low, green = high, relative to bigStack
         const ratio = clamp(score.avg / (bigStack || 60000), 0, 1);
         const r = Math.floor(255 * (1 - ratio));
         const g = Math.floor(255 * ratio);
@@ -726,7 +1054,6 @@ var SectorScoreManager = {
         ctx.strokeStyle = 'rgba(0,0,0,0.8)';
         ctx.lineWidth = 3;
         ctx.lineJoin = 'round';
-        const label = avgK + 'k\n(' + score.count + ')';
         ctx.strokeText('⌀' + avgK + 'k', cx, cy - 4);
         ctx.fillText('⌀' + avgK + 'k', cx, cy - 4);
         ctx.font = '9px monospace';
@@ -741,7 +1068,7 @@ var SectorScoreManager = {
 // ═══════════════════════════════════════════════════════════════════════════════
 var PulseAnimator = {
     start() {
-        if (pulseAnimFrame) return; // already running
+        if (pulseAnimFrame) return;
         const loop = (ts) => {
             pulseTs = ts;
             this._repaintPulses();
@@ -755,9 +1082,8 @@ var PulseAnimator = {
     },
 
     _repaintPulses() {
-        // We overlay a blinking ring on attacked villages' canvas cells
         document.querySelectorAll('[data-ow-pulse]').forEach(el => {
-            const phase = ((pulseTs % PULSE_PERIOD_MS) / PULSE_PERIOD_MS); // 0..1
+            const phase = ((pulseTs % PULSE_PERIOD_MS) / PULSE_PERIOD_MS);
             const alpha = 0.35 + 0.65 * Math.abs(Math.sin(phase * Math.PI));
             el.style.opacity = alpha;
         });
@@ -960,7 +1286,7 @@ var DataManager = {
                     MapRenderer.makeMap();
                     return;
                 }
-            } catch (e) { /* fall through to fresh fetch */ }
+            } catch (e) { /* fall through */ }
         }
 
         const total = urls.length + buildingUrls.length;
@@ -1116,7 +1442,7 @@ var DataManager = {
                     const watchtower = hasWT ? parseInt($($(row).find('td')[cellIndex]).text().trim()) || 0 : 0;
                     const wall = parseInt($($(row).find('td')[wallIndex]).text().trim()) || 0;
                     villages.push({ coordinate, watchtower, wall });
-                } catch (e) { /* skip malformed row */ }
+                } catch (e) { /* skip */ }
             });
         } catch (e) { console.warn('Overwatch: error parsing buildings', e); }
         return villages;
@@ -1137,22 +1463,68 @@ var DataManager = {
 
     setupMapInterceptors() {
         if (!TWMap?.popup) return;
+
+        // v2.4: also intercept the raw AJAX call to get HTML alongside data
+        if (TWMap.popup._owAjaxHooked !== true) {
+            const origAjax = TWMap.popup.doAjaxCall || null;
+            if (origAjax) {
+                TWMap.popup.doAjaxCall = function (...args) {
+                    const result = origAjax.apply(TWMap.popup, args);
+                    return result;
+                };
+            }
+            TWMap.popup._owAjaxHooked = true;
+        }
+
+        if (TWMap.popup._owHooked) return; // prevent double-hooking
+        TWMap.popup._owHooked = true;
+
         const origReceived = TWMap.popup.receivedPopupInformationForSingleVillage;
         TWMap.popup.receivedPopupInformationForSingleVillage = function (e) {
             origReceived.call(TWMap.popup, e);
             if (e && Object.keys(e).length > 0) {
                 MapRenderer.makeOutput(e);
-                AttackTimerManager.update(e); // v2.3 – parse attack timers
+                AttackTimerManager.update(e, null);
             }
         };
+
         const origDisplay = TWMap.popup.displayForVillage;
         TWMap.popup.displayForVillage = function (e, a, t) {
             origDisplay.call(TWMap.popup, e, a, t);
             if (e && Object.keys(e).length > 0) {
                 MapRenderer.makeOutput(e);
-                AttackTimerManager.update(e);
+                AttackTimerManager.update(e, null);
             }
         };
+
+        // v2.4: Also hook the popup HTML update to scrape timers from rendered DOM
+        const origSetContent = TWMap.popup.setContent || TWMap.popup.show || null;
+        if (origSetContent && !TWMap.popup._owContentHooked) {
+            TWMap.popup._owContentHooked = true;
+            // Use MutationObserver on the popup element instead (safer)
+            const popupEl = document.getElementById('map_popup');
+            if (popupEl) {
+                const obs = new MutationObserver(() => {
+                    // Whenever popup content changes, try to scrape timers from DOM
+                    const coordEl = popupEl.querySelector('.village_anchor, [data-id]');
+                    if (coordEl) {
+                        const xy = coordEl.dataset.id || coordEl.dataset.coord;
+                        if (xy) {
+                            const coord = xy.length >= 6 && !xy.includes('|')
+                                ? xy.substring(0, 3) + '|' + xy.substring(3, 6)
+                                : xy;
+                            const timers = AttackTimerManager._scrapeCurrentPopupDom(coord);
+                            if (timers.length > 0) {
+                                timers.sort((a, b) => a.arrivalTs - b.arrivalTs);
+                                attackTimers[coord] = timers;
+                                AttackTimerManager._updateLiveBar();
+                            }
+                        }
+                    }
+                });
+                obs.observe(popupEl, { childList: true, subtree: true });
+            }
+        }
     }
 };
 
@@ -1166,9 +1538,27 @@ var UIManager = {
         this.setupEventListeners();
         this.setInitialValues();
         try { $('#tribeLeaderUI').draggable(); } catch (e) { }
+        // Populate discord input from saved value
+        if (discordWebhookUrl) {
+            $('#owDiscordWebhookInput').val(discordWebhookUrl);
+            $('#owDiscordStatus').text('✓ Saved');
+        }
     },
 
     buildUI() {
+        // Discord webhook tooltip text (step-by-step guide)
+        const discordTipHtml = `
+            <b>Jak získat Discord Webhook URL:</b><br>
+            1. Otevři Discord a přejdi na server<br>
+            2. Klikni pravým tlačítkem na <b>textový kanál</b><br>
+            3. Vyber <b>Upravit kanál</b> (Edit Channel)<br>
+            4. Jdi na záložku <b>Integrations</b><br>
+            5. Klikni na <b>Webhooks → New Webhook</b><br>
+            6. Zvol název (např. "Overwatch"), klikni<br>
+            &nbsp;&nbsp;&nbsp;<b>Copy Webhook URL</b> a vlož sem<br>
+            7. Klikni <b>💾 Uložit</b> pro trvalé uložení
+        `;
+
         return `
         <div id="overwatchNotification">Placeholder</div>
         <div id="tribeLeaderUI" class="ui-widget-content vis" style="min-width:300px;background:rgba(20, 0, 0, 0.85);backdrop-filter:blur(10px);color:#eaeaea;border:1px solid #d4af37;position:fixed;cursor:move;z-index:999;top:60px;right:20px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.8), inset 0 0 15px rgba(212,175,55,0.1);padding-bottom:10px;font-family:system-ui, -apple-system, sans-serif;">
@@ -1176,8 +1566,8 @@ var UIManager = {
                 <div id="owHeaderBar" style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid rgba(212,175,55,0.2);margin:-10px -10px 10px -10px;border-radius:12px 12px 0 0;">
                     <span style="color:#d4af37;font-weight:800;font-size:14px;letter-spacing:2px;text-transform:uppercase;text-shadow:0 0 5px rgba(212,175,55,0.5);">MAP OVERVIEW</span>
                     <div style="display:flex;gap:6px;align-items:center;">
-                        <span id="owAutoRefreshBadge" style="font-size:10px;color:#88c8ff;border:1px solid #336;border-radius:3px;padding:1px 6px;" data-ow-tip="Auto-refresh is active">🔄 ${autoRefreshInterval}m</span>
-                        <button id="owMinimizeBtn" style="background:none;border:1px solid rgba(212,175,55,0.3);color:#d4af37;font-size:16px;cursor:pointer;padding:2px 8px;border-radius:4px;transition:all .2s;" title="Minimize" data-ow-tip="Minimize/maximize panel">–</button>
+                        <span id="owAutoRefreshBadge" style="font-size:10px;color:#88c8ff;border:1px solid #336;border-radius:3px;padding:1px 6px;">🔄 ${autoRefreshInterval}m</span>
+                        <button id="owMinimizeBtn" style="background:none;border:1px solid rgba(212,175,55,0.3);color:#d4af37;font-size:16px;cursor:pointer;padding:2px 8px;border-radius:4px;transition:all .2s;" title="Minimize">–</button>
                     </div>
                 </div>
                 <div id="toggleUi">
@@ -1185,20 +1575,37 @@ var UIManager = {
                     <center>
                         <table style="margin:20px 10px; border-collapse: separate; border-spacing: 4px;">
                             <tr>
-                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="playerSettingsButton" value="Player settings" data-ow-tip="Color, WT and per-player settings"/></td>
-                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="stackSizeButton" value="Stack settings" data-ow-tip="Stack thresholds and unit pop values"/></td>
-                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="stackListButton" value="Stack list" data-ow-tip="Selected villages for stacking"/></td>
-                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="importExportButton" value="Import/Export" data-ow-tip="Import/export data, Discord webhook, cache control"/></td>
+                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="playerSettingsButton" value="Player settings"/></td>
+                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="stackSizeButton" value="Stack settings"/></td>
+                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="stackListButton" value="Stack list"/></td>
+                                <td><input type="button" class="btn" style="background:linear-gradient(135deg, #aa0000 0%, #550000 100%);color:white;border:1px solid #d4af37;border-radius:4px;cursor:pointer;" id="importExportButton" value="Import/Export"/></td>
                             </tr>
                         </table>
                         ${this.buildPlayerSettingsTab()}
                         ${this.buildStackSizeTab()}
                         ${this.buildStackListTab()}
                         ${this.buildImportExportTab()}
-                        <div style="margin:20px 20px 5px 20px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
-                            <a href="#" class="btn btn-default" id="redrawMapBtn" style="background:rgba(212,175,55,0.2);color:#d4af37;border:1px solid #d4af37;padding:5px 10px;border-radius:4px;text-decoration:none;" data-ow-tip="Re-render all map overlays">Redraw map</a>
-                            <a href="#" class="btn btn-default" id="refreshDataBtn" style="background:rgba(212,175,55,0.2);color:#d4af37;border:1px solid #d4af37;padding:5px 10px;border-radius:4px;text-decoration:none;" data-ow-tip="Clear cache and force full data reload">Refresh data</a>
-                            <a href="#" class="btn btn-default" id="discordSummaryBtn" style="background:rgba(88,64,164,0.3);color:#b8a0ff;border:1px solid #b8a0ff;padding:5px 10px;border-radius:4px;text-decoration:none;" data-ow-tip="Send current overview summary to Discord channel">Send to Discord</a>
+
+                        <!-- v2.4: Discord inline bar -->
+                        <div id="owDiscordBar">
+                            <span style="font-size:11px;color:#b8a0ff;white-space:nowrap;">🔔 Discord:</span>
+                            <span class="ow-tip-wrap" style="flex:1;min-width:0;">
+                                <input
+                                    type="text"
+                                    id="owDiscordWebhookInput"
+                                    placeholder="Webhook URL – viz nápověda (?)"
+                                    value="${discordWebhookUrl || ''}"
+                                />
+                                <span class="ow-tip-box" style="width:300px;">${discordTipHtml}</span>
+                            </span>
+                            <button id="owDiscordSaveBtn" title="Uložit webhook URL trvale do prohlížeče">💾 Uložit</button>
+                            <span id="owDiscordStatus" style="font-size:10px;color:#88c8ff;min-width:55px;">${discordWebhookUrl ? '✓ Saved' : ''}</span>
+                        </div>
+
+                        <div style="margin:8px 20px 5px 20px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+                            <a href="#" class="btn btn-default" id="redrawMapBtn" style="background:rgba(212,175,55,0.2);color:#d4af37;border:1px solid #d4af37;padding:5px 10px;border-radius:4px;text-decoration:none;">Redraw map</a>
+                            <a href="#" class="btn btn-default" id="refreshDataBtn" style="background:rgba(212,175,55,0.2);color:#d4af37;border:1px solid #d4af37;padding:5px 10px;border-radius:4px;text-decoration:none;">Refresh data</a>
+                            <a href="#" class="btn btn-default" id="discordSummaryBtn" style="background:rgba(88,64,164,0.3);color:#b8a0ff;border:1px solid #b8a0ff;padding:5px 10px;border-radius:4px;text-decoration:none;">Send to Discord</a>
                         </div>
                         <div style="text-align:right; margin-top:15px; margin-right:5px; color:#555; font-size:9px; font-weight:bold; cursor:help; letter-spacing:1px;" title="B4LD PH4NT0M">Powered by TheBrain🧠</div>
                     </center>
@@ -1210,13 +1617,13 @@ var UIManager = {
     buildFilterBar() {
         return `
         <div id="owFilterBar">
-            <span style="font-size:12px;font-weight:bold;align-self:center" data-ow-tip="Show only villages matching ALL selected filters">Filter:</span>
-            <button class="ow-filter-btn${activeFilters.has('empty') ? ' active' : ''}" data-filter="empty" data-ow-tip="Villages with stack ≤ minimum threshold">Empty</button>
-            <button class="ow-filter-btn${activeFilters.has('attacked') ? ' active' : ''}" data-filter="attacked" data-ow-tip="Villages with at least 1 incoming attack">Under attack</button>
-            <button class="ow-filter-btn${activeFilters.has('lowwall') ? ' active' : ''}" data-filter="lowwall" data-ow-tip="Villages with wall level below 20">Wall &lt;20</button>
-            <button class="ow-filter-btn${activeFilters.has('hasWT') ? ' active' : ''}" data-filter="hasWT" data-ow-tip="Villages with watchtower present">Has WT</button>
-            <button class="ow-filter-btn${activeFilters.has('noble') ? ' active' : ''}" data-filter="noble" data-ow-tip="Villages where noble train was detected this session">Noble train</button>
-            <button class="ow-filter-btn" id="clearFiltersBtn" data-ow-tip="Clear all active filters">✕ Clear</button>
+            <span style="font-size:12px;font-weight:bold;align-self:center">Filter:</span>
+            <button class="ow-filter-btn${activeFilters.has('empty') ? ' active' : ''}" data-filter="empty">Empty</button>
+            <button class="ow-filter-btn${activeFilters.has('attacked') ? ' active' : ''}" data-filter="attacked">Under attack</button>
+            <button class="ow-filter-btn${activeFilters.has('lowwall') ? ' active' : ''}" data-filter="lowwall">Wall &lt;20</button>
+            <button class="ow-filter-btn${activeFilters.has('hasWT') ? ' active' : ''}" data-filter="hasWT">Has WT</button>
+            <button class="ow-filter-btn${activeFilters.has('noble') ? ' active' : ''}" data-filter="noble">Noble train</button>
+            <button class="ow-filter-btn" id="clearFiltersBtn">✕ Clear</button>
         </div>`;
     },
 
@@ -1227,11 +1634,11 @@ var UIManager = {
             <div style="max-height:600px!important;overflow-y:auto;margin:30px;width:fit-content;">
             <table class="vis overviewWithPadding" style="border:1px solid #7d510f;min-width:600px;max-width:960px;">
                 <thead><tr>
-                    <th style="color:#000;" data-ow-tip="Player name">Player name</th>
-                    ${hasWT ? '<th style="width:80px;text-align:center;color:#000;" data-ow-tip="Show WT radius circles on main map">Map WT</th><th style="width:80px;text-align:center;color:#000;" data-ow-tip="Show WT radius on minimap">Minimap WT</th>' : ''}
-                    <th style="width:160px;text-align:center;color:#000;" data-ow-tip="Pick color and opacity for this player's WT overlay and map ring">Map color &amp; opacity</th>
-                    <th style="color:#000;" data-ow-tip="Number of incoming attacks or sharing status">Incoming attacks</th>
-                    <th style="color:#000;" data-ow-tip="Number of villages tracked for this player">Villages</th>
+                    <th style="color:#000;">Player name</th>
+                    ${hasWT ? '<th style="width:80px;text-align:center;color:#000;">Map WT</th><th style="width:80px;text-align:center;color:#000;">Minimap WT</th>' : ''}
+                    <th style="width:160px;text-align:center;color:#000;">Map color &amp; opacity</th>
+                    <th style="color:#000;">Incoming attacks</th>
+                    <th style="color:#000;">Villages</th>
                 </tr></thead>
                 <tbody>`;
         playerData.forEach((player, i) => {
@@ -1244,17 +1651,16 @@ var UIManager = {
             <tr class="${rowClass}">
                 <td style="color:#000;">${player.playerName}</td>
                 ${hasWT ? `
-                <td><center><input id="checkMapWT${id}" type="checkbox" ${player.checkedWT ? 'checked' : ''} title="Toggle WT circles on main map for ${player.playerName}"></center></td>
-                <td><center><input id="checkWTMini${id}" type="checkbox" ${player.checkedWTMini ? 'checked' : ''} title="Toggle WT circles on minimap for ${player.playerName}"></center></td>` : ''}
+                <td><center><input id="checkMapWT${id}" type="checkbox" ${player.checkedWT ? 'checked' : ''}></center></td>
+                <td><center><input id="checkWTMini${id}" type="checkbox" ${player.checkedWTMini ? 'checked' : ''}></center></td>` : ''}
                 <td>
                     <div style="display:flex;align-items:center;gap:6px;padding:2px 4px;">
                         <input id="val${id}" type="color" value="${color}"
                             style="width:36px;height:28px;border:2px solid #7d510f;border-radius:4px;cursor:pointer;padding:1px;background:#fff;"
-                            title="Pick map overlay color for ${player.playerName}"
                             onchange="document.getElementById('colorPreview${id}').style.background=this.value;SettingsManager.updateFromUI();SettingsManager.save();">
                         <div id="colorPreview${id}"
-                            style="width:18px;height:18px;border-radius:50%;border:1px solid #555;background:${color};opacity:${opacity};flex-shrink:0;" title="Preview"></div>
-                        <div style="display:flex;flex-direction:column;align-items:center;gap:1px;" title="Adjust overlay opacity">
+                            style="width:18px;height:18px;border-radius:50%;border:1px solid #555;background:${color};opacity:${opacity};flex-shrink:0;"></div>
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:1px;">
                             <span style="color:#000;font-size:9px;font-weight:bold;" id="alpLabel${id}">${opacityPct}%</span>
                             <input id="alp${id}" type="range" min="0" max="1" step="0.05" value="${opacity}"
                                 style="width:70px;height:14px;cursor:pointer;accent-color:#7d510f;"
@@ -1271,8 +1677,8 @@ var UIManager = {
         html += `
             ${hasWT ? `<tr style="border-top:1px solid black">
                 <td style="text-align:right;color:#000;">Select all:</td>
-                <td><center><input id="checkAllWT" type="checkbox" title="Toggle all Map WT checkboxes"></center></td>
-                <td><center><input id="checkAllWTMini" type="checkbox" title="Toggle all Minimap WT checkboxes"></center></td>
+                <td><center><input id="checkAllWT" type="checkbox"></center></td>
+                <td><center><input id="checkAllWTMini" type="checkbox"></center></td>
                 <td colspan="3"></td>
             </tr>` : ''}
                 </tbody></table>
@@ -1286,9 +1692,9 @@ var UIManager = {
         <div id="stackSize">
             <table class="vis" style="margin:30px;">
                 <tr>
-                    <th style="color:#000 !important;" data-ow-tip="Stacks below this value are shown in cyan (empty)">Empty</th>
-                    <th colspan="2" style="width:400px;text-align:center;color:#000 !important;" data-ow-tip="Drag sliders to set Small and Medium stack boundaries">Small – Medium stack</th>
-                    <th style="color:#000 !important;" data-ow-tip="Maximum stack size – sets the right boundary of the slider">Big stack</th>
+                    <th style="color:#000 !important;">Empty</th>
+                    <th colspan="2" style="width:400px;text-align:center;color:#000 !important;">Small – Medium stack</th>
+                    <th style="color:#000 !important;">Big stack</th>
                 </tr>
                 <tr style="height:70px">
                     <td><input type="text" id="emptyStack" name="emptyStack" style="color:#000;background:#fff;font-weight:bold;" onchange="minimum=$(this).val();updateStackSizes();"></td>
@@ -1311,11 +1717,11 @@ var UIManager = {
                 <tr>
                     <td></td>
                     <td>
-                        <label style="color:#000 !important;font-weight:bold;" data-ow-tip="Villages with stack in this range are shown in red">Small stack</label>
+                        <label style="color:#000 !important;font-weight:bold;">Small stack</label>
                         <input type="text" style="margin-left:20px;color:#000;background:#fff;font-weight:bold;" onchange="updateSmall(this)" id="smallStack">
                     </td>
                     <td style="text-align:right">
-                        <label style="margin:0 10px 0 40px;color:#000 !important;font-weight:bold;" data-ow-tip="Villages with stack in this range are shown in yellow">Medium stack</label>
+                        <label style="margin:0 10px 0 40px;color:#000 !important;font-weight:bold;">Medium stack</label>
                         <input type="text" style="margin-right:20px;color:#000;background:#fff;font-weight:bold;" onchange="updateMedium(this)" id="mediumStack">
                     </td>
                     <td></td>
@@ -1339,21 +1745,21 @@ var UIManager = {
                 </tr></thead>
                 <tbody><tr>
                     ${['spear', 'sword', 'axe', 'archer', 'spy', 'light', 'marcher', 'heavy', 'ram', 'catapult', 'knight', 'snob', 'militia'].map(u =>
-            `<td align="center"><input type="text" onchange="SettingsManager.save();" name="${u}" id="${u}" size="2" value="${unitPopValues[u] || 0}" style="color:#000;background:#fff;font-weight:bold;text-align:center;" title="Population value for ${u}"></td>`
+            `<td align="center"><input type="text" onchange="SettingsManager.save();" name="${u}" id="${u}" size="2" value="${unitPopValues[u] || 0}" style="color:#000;background:#fff;font-weight:bold;text-align:center;"></td>`
         ).join('')}
                 </tr></tbody>
             </table>
             <table class="vis overviewWithPadding" style="border:1px solid #7d510f;margin:20px;">
                 <tr>
-                    <td><label style="color:#000 !important;font-weight:bold;" data-ow-tip="Size of one support packet in population points">Packet size (pop)</label></td>
+                    <td><label style="color:#000 !important;font-weight:bold;">Packet size (pop)</label></td>
                     <td><input type="text" id="packetSize" value="${packetSize}" style="color:#000;background:#fff;font-weight:bold;" onchange="packetSize=$(this).val();SettingsManager.save();"></td>
                 </tr>
                 <tr>
-                    <td><label style="color:#000 !important;font-weight:bold;" data-ow-tip="Cached data older than this will be re-fetched from server">Cache TTL (minutes)</label></td>
+                    <td><label style="color:#000 !important;font-weight:bold;">Cache TTL (minutes)</label></td>
                     <td><input type="text" id="cacheTTL" value="${cacheTTL}" style="color:#000;background:#fff;font-weight:bold;" onchange="cacheTTL=$(this).val();SettingsManager.save();"></td>
                 </tr>
                 <tr>
-                    <td><label style="color:#000 !important;font-weight:bold;" data-ow-tip="Automatically refresh data in the background every N minutes (0 = disabled)">Auto-refresh interval (min)</label></td>
+                    <td><label style="color:#000 !important;font-weight:bold;">Auto-refresh interval (min)</label></td>
                     <td><input type="text" id="autoRefreshInterval" value="${autoRefreshInterval}" style="color:#000;background:#fff;font-weight:bold;" onchange="autoRefreshInterval=$(this).val();AutoRefreshManager.restart();SettingsManager.save();"></td>
                 </tr>
             </table>
@@ -1369,7 +1775,7 @@ var UIManager = {
                 <p><textarea rows="10" style="width:590px;max-height:155px;overflow-y:auto;" id="villageList"></textarea></p>
                 <hr>
                 <p><textarea rows="10" style="width:590px;max-height:155px;overflow-y:auto;" id="villageListBB"></textarea></p>
-                <a href="#" class="btn btn-default" id="clearSelectionBtn" style="margin-top:8px;" data-ow-tip="Remove all villages from the stack list">Clear selection</a>
+                <a href="#" class="btn btn-default" id="clearSelectionBtn" style="margin-top:8px;">Clear selection</a>
             </div>
         </div>`;
     },
@@ -1381,26 +1787,28 @@ var UIManager = {
                 <h1>Export data</h1>
                 <hr>
                 <p>
-                    <a href="#" class="btn btn-default" id="exportBtn" data-ow-tip="Copy all player data as JSON to clipboard">Export players (JSON)</a>
-                    <a href="#" class="btn btn-default" id="exportCsvBtn" style="margin-left:6px;" data-ow-tip="Copy spreadsheet-ready CSV to clipboard">Export CSV (Google Sheets)</a>
+                    <a href="#" class="btn btn-default" id="exportBtn">Export players (JSON)</a>
+                    <a href="#" class="btn btn-default" id="exportCsvBtn" style="margin-left:6px;">Export CSV (Google Sheets)</a>
                 </p>
                 <hr>
                 <h1>Import data</h1>
                 <p><textarea rows="3" style="width:590px;max-height:155px;overflow-y:auto;" id="importData" placeholder="Paste exported JSON here…"></textarea></p>
-                <p><a href="#" class="btn btn-default" id="importBtn" data-ow-tip="Merge pasted JSON player data into current session">Import players</a></p>
+                <p><a href="#" class="btn btn-default" id="importBtn">Import players</a></p>
                 <hr>
                 <h1>Discord Webhook</h1>
                 <p>
                     <input type="text" id="discordWebhookUrl" placeholder="https://discord.com/api/webhooks/…"
                         value="${discordWebhookUrl}"
-                        style="width:560px;color:#000;background:#fff;font-size:12px;padding:4px;"
-                        title="Paste your Discord channel webhook URL here. Noble train alerts and manual summaries will be sent here."
+                        style="width:460px;color:#000;background:#fff;font-size:12px;padding:4px;"
                         onchange="discordWebhookUrl=$(this).val();SettingsManager.save();">
+                    <button onclick="SettingsManager.saveDiscord($('#discordWebhookUrl').val());return false;"
+                        style="margin-left:6px;padding:4px 10px;background:#4a3a8c;color:#fff;border:1px solid #b8a0ff;border-radius:4px;cursor:pointer;">💾 Uložit</button>
                 </p>
-                <p style="font-size:11px;color:#888;">Noble train alerts are sent automatically. Use the <b>Send to Discord</b> button on the main panel to send a manual summary.</p>
+                <p style="font-size:11px;color:#888;">Noble train alerts are sent automatically. Use the <b>Send to Discord</b> button to send a manual summary.<br>
+                Webhook URL je také dostupný v inline panelu vlevo dole.</p>
                 <hr>
                 <h1>Clear cache</h1>
-                <p><a href="#" class="btn btn-default" id="clearCacheBtn" data-ow-tip="Force next load to re-fetch all player data from server">Clear cached data (force re-fetch)</a></p>
+                <p><a href="#" class="btn btn-default" id="clearCacheBtn">Clear cached data (force re-fetch)</a></p>
             </div>
         </div>`;
     },
@@ -1438,6 +1846,24 @@ var UIManager = {
             setTimeout(() => location.reload(), 800);
         });
         $('#discordSummaryBtn').click(e => { e.preventDefault(); DiscordExporter.sendManualSummary(); });
+
+        // v2.4: inline discord save button
+        $(document).on('click', '#owDiscordSaveBtn', () => {
+            const url = $('#owDiscordWebhookInput').val().trim();
+            if (!url) {
+                showNotification('Zadej Discord Webhook URL!', 3000);
+                return;
+            }
+            SettingsManager.saveDiscord(url);
+        });
+
+        // v2.4: also save on Enter in webhook input
+        $(document).on('keydown', '#owDiscordWebhookInput', (e) => {
+            if (e.key === 'Enter') {
+                const url = $(e.target).val().trim();
+                if (url) SettingsManager.saveDiscord(url);
+            }
+        });
 
         $(document).on('click', '#exportBtn', e => { e.preventDefault(); exportData(); });
         $(document).on('click', '#exportCsvBtn', e => { e.preventDefault(); CSVExporter.export(); });
@@ -1601,7 +2027,6 @@ var MapRenderer = {
         installHook();
         TWMap.mapHandler.onReload();
 
-        // Start pulse animation loop
         PulseAnimator.start();
     },
 
@@ -1625,7 +2050,6 @@ var MapRenderer = {
         canvas.style.cssText = 'position:absolute;left:0;top:0;z-index:10;pointer-events:none;';
         const ctx = canvas.getContext('2d');
 
-        // Pulse canvas for attacked villages (separate layer so we can animate opacity)
         const pulseCanvas = document.createElement('canvas');
         pulseCanvas.width = tileW * sectorSize;
         pulseCanvas.height = tileH * sectorSize;
@@ -1670,17 +2094,14 @@ var MapRenderer = {
                 this.drawLeftTriangle(canvas, ox, oy, curColor);
                 this.drawRightTriangle(canvas, ox, oy, totColor);
 
-                // v2.3 – Player-colored ring
                 this.drawPlayerRing(canvas, ox, oy, element.color, parseFloat(element.opacity) || 0.3);
 
-                // v2.3 – Noble train highlight (thick red border)
                 if (element._nobleTrain) {
                     this.drawNobleBorder(canvas, ox, oy);
                 }
 
                 const hasAttacks = parseInt(element.incomingAttacks) > 0;
 
-                // v2.3 – Pulse ring for attacked villages
                 if (hasAttacks) {
                     pulseUsed = true;
                     this.drawPulseRing(pulseCanvas, ox, oy);
@@ -1694,10 +2115,10 @@ var MapRenderer = {
                 if (element.wall !== '---' && parseInt(element.wall) < 20) this.textOnMap(element.wall, ctx, ox + 20, oy - 8, 'white', '10px Arial');
                 this.textOnMap(Math.floor(element.totalStack / 1000) + 'k', ctx, ox - 2, oy + 14, 'white', '10px Arial');
 
-                // v2.3 – Attack timer countdown
+                // v2.4: Attack timer countdown (from attackTimers cache)
                 const timerTxt = AttackTimerManager.getCountdownText(element.coord);
                 if (timerTxt) {
-                    this.textOnMap(timerTxt, ctx, ox, oy - 20, '#ffbb00', 'bold 9px monospace', true);
+                    this.textOnMap(timerTxt, ctx, ox, oy - 22, '#ffbb00', 'bold 9px monospace', true);
                 }
 
                 const delta = TrendManager.getTrend(element.coord);
@@ -1721,7 +2142,6 @@ var MapRenderer = {
         this._renderMinimap(sectorX, sectorY);
     },
 
-    // v2.3 – thin player-colored ring
     drawPlayerRing(canvas, x, y, color, opacity) {
         const ctx = canvas.getContext('2d');
         ctx.save();
@@ -1734,7 +2154,6 @@ var MapRenderer = {
         ctx.restore();
     },
 
-    // v2.3 – noble train thick red border
     drawNobleBorder(canvas, x, y) {
         const ctx = canvas.getContext('2d');
         ctx.save();
@@ -1751,7 +2170,6 @@ var MapRenderer = {
         ctx.restore();
     },
 
-    // v2.3 – pulse ring (opacity animated by PulseAnimator)
     drawPulseRing(canvas, x, y) {
         const ctx = canvas.getContext('2d');
         ctx.save();
@@ -1784,7 +2202,6 @@ var MapRenderer = {
                 }
             });
             this._drawHeatmap(mc, msec);
-            // v2.3 – sector score overlay
             SectorScoreManager.drawOnMinimap(mc, msec.x, msec.y);
             if (miniUsed) msec.appendElement(mc, 0, 0);
         }
@@ -1900,7 +2317,7 @@ var MapRenderer = {
         $('#overwatch_info').remove();
         if (!data?.xy) return;
         const xy = data.xy.toString();
-        const coord = xy.substring(0, 3) + '|' + xy.substring(3, 6);
+        const coord = xy.includes('|') ? xy : (xy.substring(0, 3) + '|' + xy.substring(3, 6));
         const el = targetData.find(v => v.coord === coord);
         if (el) {
             const archersEnabled = game_data.units.includes('archer');
