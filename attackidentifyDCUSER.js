@@ -15,7 +15,7 @@
     // ============================================================
     //  KONFIGURACE – VYPLŇ PŘED POUŽITÍM
     // ============================================================
-    const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/TVUJ_WEBHOOK_ZDE';
+    const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/1487063530086727711/sLYm1-Fh-jwj0FQmGSb6UogHwb3ktLvidH3BLwN37oC3QDQCH5bTUMtBj84zM-AHcDOx';
 
     const RAM_TRAIN_MIN_ATTACKS   = 3;   // minimálně kolik útoků tvoří ram vlak
     const RAM_TRAIN_TIME_WINDOW_S = 3;   // v rozmezí kolika sekund
